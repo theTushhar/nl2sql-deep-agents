@@ -33,6 +33,8 @@ export interface Telemetry {
   traceId?: string;
   /** Per-LLM-call records in pipeline execution order. */
   llmTraces?: LlmCallTrace[];
+  /** Prompt + domain/catalog versions for reproducibility. */
+  promptVersions?: Record<string, string>;
 }
 
 export interface ProdEnvelope {

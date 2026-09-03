@@ -43,6 +43,7 @@ export const ProdEnvelopeSchema = z.object({
     toolTriggers: z.array(z.object({ name: z.string(), outcome: z.string() })).optional(),
     retryCounts: z.record(z.string(), z.number()).optional(),
     traceId: z.string().optional(),
+    promptVersions: z.record(z.string(), z.string()).optional(),
     llmTraces: z
       .array(
         z.object({
@@ -91,7 +92,7 @@ export interface EnvelopeIssue {
 export function validateEnvelope(
   envelope: ProdEnvelope,
   kind: "success" | "blocked" | "conversational" | "error" | "unsupported" | "clarification_required",
-  opts?: { includeAst?: boolean }
+  opts?: { includeAst?: boolean; includeSql?: boolean }
 ): EnvelopeIssue[] {
   const issues: EnvelopeIssue[] = [];
   const shape = ProdEnvelopeSchema.safeParse(envelope);
@@ -107,10 +108,15 @@ export function validateEnvelope(
   }
   // P2-3: simplified redundant condition (was kind===success||error && kind===success).
   if (kind === "success") {
-    if (envelope.sql === null || envelope.sql.trim() === "") {
+    const includeSql = opts?.includeSql !== false;
+    const includeAst = opts?.includeAst !== false;
+    if (includeSql && (envelope.sql === null || envelope.sql.trim() === "")) {
       issues.push({ path: "sql", message: "success envelopes must carry certified SQL." });
     }
-    if (envelope.dbNeutralQuery === null || (typeof envelope.dbNeutralQuery === "string" && envelope.dbNeutralQuery.trim() === "")) {
+    if (!includeSql && envelope.sql !== null) {
+      issues.push({ path: "sql", message: "success envelopes must carry null SQL when include_sql=false." });
+    }
+    if (includeSql && (envelope.dbNeutralQuery === null || (typeof envelope.dbNeutralQuery === "string" && envelope.dbNeutralQuery.trim() === ""))) {
       issues.push({ path: "dbNeutralQuery", message: "success envelopes must carry DB-neutral SQL." });
     }
     // AST is required on success UNLESS the caller opted out via
@@ -118,7 +124,7 @@ export function validateEnvelope(
     // caller metadata) or the AST tool failed while certified SQL stands
     // (AST_VALIDATION_FAILED marker in unresolved — SQL success with
     // ast:null, never weakened AST).
-    const astOptOut = opts?.includeAst === false;
+    const astOptOut = includeAst === false;
     const astToolFailed = (envelope.unresolved || []).some((u) => String(u).includes("AST_VALIDATION_FAILED"));
     if (envelope.ast === null || envelope.ast === undefined) {
       if (!astOptOut && !astToolFailed) {

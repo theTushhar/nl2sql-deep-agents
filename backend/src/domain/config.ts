@@ -1,24 +1,14 @@
-// Config snapshot, file-backed for now, DB-movable shape.
-// Values copied from backend/config at scaffold time; the new service reads
-// only this snapshot via loadSnapshot(), never backend singletons. Later the
-// same shape moves into DB tables and changes without redeploy.
-
 export interface DomainProjection {
-  /** single-uuid: grid-filter subquery projecting exactly one DISTINCT UUID column. flexible: honor the question intent. */
   kind: "single-uuid" | "flexible";
-  /** UUID column for single-uuid projections (e.g. TEST_SET_UUID). */
   column?: string;
 }
 
 export interface DomainEntry {
   canonical_name: string;
   description: string;
-  /** Allowed tables for the domain. Empty means: resolve via schema exploration over all tables. */
   allowedTables: string[];
   subDomains: string[];
-  /** Projection contract enforced by validators (data, not hardcoded branches). */
   projection: DomainProjection;
-  /** Skill packs available to generation for this domain (served natively via SkillsMiddleware). */
   skills: string[];
 }
 
@@ -47,22 +37,16 @@ export interface TableEntry {
 
 export interface BusinessRule {
   id: string;
-  /** Owning domain (strict partition: exactly one domain per rule). */
   domain: string;
   target_table: string;
   target_column?: string;
   sql_clause: string;
-  /** Semantic description. The interpreter LLM reasons from this — there are
-   *  deliberately NO trigger terms: substring matching is the brittle
-   *  mechanism being retired. */
   description: string;
-  /** Default rules apply unless the user explicitly opts out. */
   is_default?: boolean;
 }
 
 export interface ConfigSnapshot {
   ref: string;
-  /** Dialects the writer can target. Requests for other dialects are blocked formally. */
   supportedDialects: string[];
   domains: DomainEntry[];
   tables: TableEntry[];
@@ -72,8 +56,6 @@ export interface ConfigSnapshot {
 export const DEFAULT_SNAPSHOT: ConfigSnapshot = {
   ref: "file-v1",
   supportedDialects: ["mysql", "mssql"],
-  // NOTE: intentionally diverged from backend/config/domains/*.json (backend
-  // frozen). Projection guidance lives in domain skill prompts, not here.
   domains: [
     {
       canonical_name: "all_test_sets",
@@ -176,7 +158,7 @@ export const DEFAULT_SNAPSHOT: ConfigSnapshot = {
       target_table: "TEST_CASE",
       target_column: "TEST_CASE_STATUS",
       sql_clause: "tc.TEST_CASE_STATUS = 'COMMITTED'",
-      description: "Active, committed, or published test cases always map to TEST_CASE_STATUS = 'COMMITTED'.",
+      description: "Select ONLY when user explicitly asks for active, committed, or published test cases. Never select by default.",
     },
     {
       id: "RULE_DRAFT_TEST_CASES",
@@ -184,7 +166,7 @@ export const DEFAULT_SNAPSHOT: ConfigSnapshot = {
       target_table: "TEST_CASE",
       target_column: "TEST_CASE_STATUS",
       sql_clause: "tc.TEST_CASE_STATUS = 'DRAFT'",
-      description: "Draft, uncommitted, or work-in-progress test cases map to TEST_CASE_STATUS = 'DRAFT'.",
+      description: "Select ONLY when user explicitly asks for draft, uncommitted, or work-in-progress test cases. Never select by default.",
     },
     {
       id: "RULE_EXCLUDE_COMMENTED_STEPS",
@@ -192,8 +174,7 @@ export const DEFAULT_SNAPSHOT: ConfigSnapshot = {
       target_table: "TEST_CASE_STEP",
       target_column: "IS_COMMENTED_STEP",
       sql_clause: "(tcs.IS_COMMENTED_STEP != 'Yes' OR tcs.IS_COMMENTED_STEP IS NULL)",
-      description:
-        "Exclude commented BDD steps by default whenever step data is queried, unless the user explicitly asks for commented steps.",
+      description: "Exclude commented BDD steps by default whenever step data is queried, unless user explicitly asks for commented steps.",
       is_default: true,
     },
     {
@@ -213,7 +194,6 @@ export const DEFAULT_SNAPSHOT: ConfigSnapshot = {
   ],
 };
 
-/** Immutable per-request snapshot read. Subagents never touch the source directly. */
 export function loadSnapshot(ref: string = DEFAULT_SNAPSHOT.ref): ConfigSnapshot {
   if (ref !== DEFAULT_SNAPSHOT.ref) {
     throw new Error(`Unknown config snapshot ref: ${ref}`);

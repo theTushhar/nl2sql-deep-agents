@@ -50,6 +50,7 @@ export interface ComposerInput {
   llmTraces?: LlmCallTrace[];
   question?: string;
   canonical_query?: string;
+  promptVersions?: Record<string, string>;
 }
 
 const GENERIC_BLOCKED =
@@ -68,8 +69,10 @@ const UNSUPPORTED_MESSAGE =
   "This search cannot be represented by the supported query contract.";
 
 export function composeResponse(input: ComposerInput): ProdEnvelope {
-  if (input.kind === "success" && (input.certifiedSql === null || input.certifiedSql.trim() === "")) {
-    throw new Error("Composer invariant violated: success requires certified SQL.");
+  if (input.kind === "success" &&
+      (input.certifiedSql === null || input.certifiedSql.trim() === "") &&
+      (input.ast === null || input.ast === undefined)) {
+    throw new Error("Composer invariant violated: success requires SQL or AST output.");
   }
   // Unsupported keeps certified SQL for migration but carries ast:null and a
   // reason — never a weakened AST. Clarification carries null SQL + prompt.
@@ -157,6 +160,7 @@ export function composeResponse(input: ComposerInput): ProdEnvelope {
       retryCounts: { ...input.retryCounts },
       traceId: input.traceId,
       llmTraces: input.llmTraces ? [...input.llmTraces] : [],
+      ...(input.promptVersions ? { promptVersions: { ...input.promptVersions } } : {}),
     },
     meta: {
       domain: input.domain,
