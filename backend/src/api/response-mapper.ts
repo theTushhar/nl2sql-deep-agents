@@ -33,6 +33,7 @@ export interface BackendCompatData {
     llmCallsCount: number;
     llmCost: number;
     llmTraces?: BackendCompatTrace[];
+    promptVersions?: Record<string, string>;
   };
 }
 
@@ -128,6 +129,7 @@ export function toBackendEnvelope(args: {
       llmCallsCount: rawTraces.length || Object.keys(envelope.meta.modelsUsed || {}).length,
       llmCost: cost,
       ...(llmTraces ? { llmTraces } : {}),
+      ...(envelope.telemetry.promptVersions ? { promptVersions: envelope.telemetry.promptVersions } : {}),
     },
   };
 
