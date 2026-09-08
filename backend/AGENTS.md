@@ -69,13 +69,12 @@ backend/
 │   │                             config.ts, guardrails.ts, sql-ast.ts,
 │   │                             ast-validator.ts, response-composer.ts,
 │   │                             schema-formatter.ts, env-validation.ts
-│   ├── prompting/             ← prompt template loader (for scripts/prompts-check.ts)
 │   ├── api/                   ← Hono routes + schemas (request-schema, response-mapper, openapi)
 │   └── contracts/             ← frozen prod envelope (query-envelope.ts)
 ├── tests/
 │   ├── unit/                  ← fast offline tests mirroring src/ (vitest)
 │   └── integration/           ← live contract + query evals (need LLM key)
-└── scripts/                   ← deep-smoke.ts, prompts-check.ts (no LLM cost)
+└── scripts/                   ← deep-smoke.ts (no LLM cost)
 ```
 
 Naming rules:

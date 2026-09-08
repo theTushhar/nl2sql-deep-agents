@@ -14,18 +14,23 @@ Self-service rules:
   tables, filters, catalog text, time context) — never full transcripts.
 - Subagent outputs are zod-`responseFormat` enforced (`src/agent/schemas.ts`);
   strict re-validation of SQL/AST stays in code (`coordinator.ts`).
-- Run `npm run prompts:check` after editing (no LLM cost).
+- Run `npm run deep:smoke` after editing (no LLM cost).
 
 See `AGENTS.md` §5 for the workflow and `docs/deep-agents.md` for the full reference.
-The architecture has been unified into 3 lean subagents (`planner`, `writer`, `checker`) plus coordinator dispatch.
+The architecture uses 3 lean subagents (`planner`, `sql-writer`, `ast-writer`) plus coordinator dispatch.
+`writer.prompt.md` is legacy (SQL-first path); `sql-writer.prompt.md` is canonical for new work.
+Repair prompts (`sql-repair`, `ast-repair`) and `reconciliation` document the deterministic code gates.
 
 ## Map
 
 | Tune this behavior | Edit this file | Owner (do not edit for wording) | Runs | Facts (via tools / task description) |
 |---|---|---|---|---|
-| Dispatcher workflow (delegation order, checker policy, retry budget, FinalAnswer rules) | `prompts/coordinator.prompt.md` | `src/agent/agent.ts` (wiring only) | main agent, every request | planner JSON + writer SQL in `task` descriptions |
-| Safety + normalization + domain + table/rule planning (greetings, synonyms, routing, relevance, search scope, LIKE patterns, complexity, rule selection) | `prompts/planner.prompt.md` | `src/agent/subagents.ts` (`planner`) | 1st stage, every request | snapshot tools (`list_domains`, `find_tables`, `get_table_schema`, `list_searchable_columns`, `list_business_rules` with the planner domain) |
-| SQL + AST generation (schema use, aliases, LIKE discipline, projection, AST v2 mirror, domain-skill routing) | `prompts/writer.prompt.md` | `src/agent/subagents.ts` (`writer`) | after planner, every data request | ONE `get_context` call + planner JSON + time context in description; domain skill auto-loaded via SkillsMiddleware |
+| Dispatcher workflow (planner once, independent SQL/AST branches, FinalAnswer rules) | `prompts/coordinator.prompt.md` | `src/agent/agent.ts` (wiring only) | main agent, every request | planner JSON + branch outputs in `task` descriptions |
+| Safety + normalization + domain + table/rule planning (compact QueryPlan, no reasoning) | `prompts/planner.prompt.md` | `src/agent/subagents.ts` (`planner`) | 1st stage, every request | snapshot tools (`get_table_schema`, `list_searchable_columns`, `list_business_rules` with the planner domain) |
+| SQL generation (planner contract verbatim, no AST, fail-closed) | `prompts/sql-writer.prompt.md` | `src/agent/subagents.ts` (`sql-writer`) | when include_sql=true | planner JSON + time context in description; domain skill auto-loaded via SkillsMiddleware |
+| AST generation (planner contract verbatim, strict v2, no SQL) | `prompts/ast-writer.prompt.md` | `src/agent/subagents.ts` (`ast-writer`) | when include_ast=true | planner JSON + required projection + time context; domain skill auto-loaded |
+| SQL branch repair (single retry, no replanning) | `prompts/sql-repair.prompt.md` | `src/agent/coordinator.ts` (code gate) | on SQL validation failure, max once | planner contract + failed SQL + validation errors |
+| AST branch repair (single retry, no SQL) | `prompts/ast-repair.prompt.md` | `src/agent/coordinator.ts` (code gate) | on AST validation failure, max once | planner contract + failed AST + validation errors |
 | SQL safety screen, fix notes for the writer retry (text-only, no tools; code gate is authoritative) | `prompts/checker.prompt.md` | `src/agent/subagents.ts` (`checker`) | after writer, only on uncertainty/risk | candidate SQL + domain in description |
 | User-facing copy (no LLM cost, pure template) | `src/domain/response-composer.ts` (`composeResponse`, code-owned) | — | every terminal path | `question, tables, dialect, intent` |
 | Generation style: read-only, aliases, JOINs, projection guidance | writer prompt (generic mechanics) + domain skills below | writer subagent | every generation | (none — progressive disclosure) |
@@ -36,13 +41,11 @@ The architecture has been unified into 3 lean subagents (`planner`, `writer`, `c
 ## Tuning workflow
 
 1. Find the behavior row above, open the `.prompt.md` file.
-2. Edit wording. Keep the STRICT JSON / output-shape blocks aligned with the matching
+2. Edit wording. Keep the output-shape blocks aligned with the matching
    zod schema in `src/agent/schemas.ts` (planner ↔ `PlannerSchema`,
-   writer ↔ `WriterSchema`, checker ↔ `CheckerSchema`) — strict SQL/AST validation
+   sql-writer ↔ `SqlWriterSchema`, ast-writer ↔ `AstWriterSchema`) — strict SQL/AST validation
    lives in code and does not change.
-3. Tune knobs in frontmatter without code changes: `temperature`, `json_mode`,
-   `version`, `description`. Model is always `LLM_MODEL`.
-4. Verify: `npm run prompts:check`, then `npm run typecheck` (both no LLM cost).
+3. Verify: `npm run deep:smoke`, then `npm run typecheck` (both no LLM cost).
 
 ## Render check (no LLM needed)
 
