@@ -1,9 +1,3 @@
-// Deep Agents tool layer.
-// Wraps the read-only config-snapshot accessors as langchain StructuredTools
-// so subagents fetch facts via tool calls (progressive disclosure) instead of
-// receiving pre-rendered {{variables}} walls in every system prompt.
-// All tools are pure reads over DEFAULT_SNAPSHOT — no writes, no network.
-
 import { z } from "zod";
 import { tool } from "langchain";
 import { DEFAULT_SNAPSHOT } from "../domain/config";
@@ -61,9 +55,6 @@ export const listSearchableColumnsTool = tool(
 
 export const listBusinessRulesTool = tool(
   ({ domain }: { domain?: string }): string => {
-    // Strict partition: a caller planning for one domain sees ONLY that
-    // domain's rules. Omitting the domain returns everything (back-compat
-    // for callers with no domain context yet).
     const wanted = (domain || "").toLowerCase();
     const rules = snapshot.businessRules
       .filter((r) => !wanted || r.domain.toLowerCase() === wanted)
@@ -78,7 +69,7 @@ export const listBusinessRulesTool = tool(
   },
   {
     name: "list_business_rules",
-    description: "List business rules for ONE domain (pass the planner domain). Returns only that domain's rules. Return IDs only; SQL clauses are joined deterministically in code.",
+    description: "List business rules for ONE domain (pass the planner domain). Returns only that domain's rules.",
     schema: z.object({ domain: z.string().optional() }),
   }
 );
@@ -114,32 +105,20 @@ export const listDomainsTool = tool(
       description: d.description,
       subDomains: d.subDomains,
       projection: d.projection,
-      // Skill packs the writer must load for this domain (progressive
-      // disclosure: names only here; bodies load on demand via SkillsMiddleware).
       skills: d.skills,
     }));
     return JSON.stringify({ domains });
   },
   {
     name: "list_domains",
-    description: "List registered domains + descriptions + projection contracts + skill packs. Never invent a domain outside this list.",
+    description: "List registered domains + descriptions + projection contracts + skill packs.",
     schema: z.object({}),
   }
 );
 
-/**
- * Single-call context for the writer happy path: domain tables +
- * full schemas + searchable columns + that domain's rules + the rendered
- * schema block, in one tool result instead of 4-5 sequential round-trips.
- * Planner/checker keep the granular tools; the writer prefers this one.
- */
 export const getContextTool = tool(
   ({ domain, tables }: { domain: string; tables: string[] }): string => {
     const wanted = (domain || "").toLowerCase();
-    // Compact schemas: name/type/searchable/allowed_values/description only —
-    // full join arrays live in buildSchemaBlock consumers; the writer joins
-    // via the schema block paths, so per-table joins are omitted here to
-    // avoid shipping the same column list twice (schemas + schemaBlock).
     const schemas = tables.map((table) => {
       const entry = snapshot.tables.find((t) => t.table_name === table);
       if (!entry) return { error: `Unknown table: ${table}` };
@@ -182,13 +161,11 @@ export const getContextTool = tool(
   },
   {
     name: "get_context",
-    description:
-      "Get everything needed to write SQL for a domain in ONE call: table schemas, searchable columns, that domain's business rules, and the rendered schema block. Prefer this over list_domains/get_table_schema/build_schema_block sequences.",
+    description: "Get everything needed to write SQL for a domain in ONE call.",
     schema: z.object({ domain: z.string(), tables: z.array(z.string()) }),
   }
 );
 
-/** Minimal read-only set shared by the planner/writer/checker subagents. */
 export const snapshotTools = [
   findTablesTool,
   getTableSchemaTool,

@@ -30,8 +30,8 @@ describe("llmCallLimitFor", () => {
     expect(llmCallLimitFor("writer", DEFAULT_SUBAGENT_LLM_CALL_LIMIT)).toBe(3);
   });
 
-  it("defaults to 8 for the coordinator", () => {
-    expect(llmCallLimitFor("coordinator", DEFAULT_COORDINATOR_LLM_CALL_LIMIT)).toBe(8);
+  it("defaults to 16 for the coordinator", () => {
+    expect(llmCallLimitFor("coordinator", DEFAULT_COORDINATOR_LLM_CALL_LIMIT)).toBe(16);
   });
 
   it("AGENT_LLM_CALL_LIMIT overrides every agent", () => {

@@ -6,9 +6,11 @@
 // Pure conversion check, no LLM.
 import { describe, it, expect } from "vitest";
 import {
+  AstWriterResponse,
   CheckerResponse,
   FinalAnswerResponse,
   PlannerResponse,
+  SqlWriterResponse,
   WriterResponse,
 } from "../../../src/agent/schemas";
 
@@ -24,6 +26,8 @@ function toolParametersType(response: unknown): unknown {
 describe("responseFormat tool parameters", () => {
   const cases = {
     PlannerResponse,
+    SqlWriterResponse,
+    AstWriterResponse,
     WriterResponse,
     CheckerResponse,
     FinalAnswerResponse,

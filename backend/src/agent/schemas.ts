@@ -30,30 +30,51 @@ export const CheckerSchema = z.object({
 });
 
 /**
- * Planner boundary: normalize + plan in one response. The planner classifies
- * intent, resolves the domain, and grounds tables/search/rules via tools.
+ * Planner boundary: compact typed plan. No free-form reasoning in production.
+ * The coordinator passes this contract verbatim to both writers.
  */
 export const PlannerSchema = z.object({
-  canonical_query: z.string(),
-  intent: z.enum(["filtering", "aggregation", "list", "greeting", "out_of_scope", "malicious"]),
-  conversational_response: z.string().nullable(),
+  kind: z.enum(["data_query", "greeting", "out_of_scope", "malicious"]),
+  canonicalQuery: z.string(),
+  intent: z.enum(["filtering", "aggregation", "list"]),
   domain: z.string(),
-  relevantTables: z.array(z.string()),
-  searchScope: z.array(z.string()),
-  likePattern: z.string().nullable(),
-  operator: z.enum(["LIKE", "REGEXP", "NONE"]),
+  relevantEntities: z.array(z.string()),
+  selectedFields: z.array(z.object({ entity: z.string(), field: z.string() })),
+  legalJoinPaths: z.array(z.record(z.string(), z.unknown())),
   appliedRuleIds: z.array(z.string()),
-  complexity: z.enum(["simple", "medium", "complex"]),
-  reasoning: z.string().optional().default(""),
+  searchScope: z.array(z.string()),
+  aggregation: z.record(z.string(), z.unknown()).nullable().optional(),
+  order: z.array(z.record(z.string(), z.unknown())).optional(),
+  limit: z.number().int().min(1).max(1000).nullable().optional(),
+  dateInterpretation: z.record(z.string(), z.unknown()).nullable().optional(),
+  requiredProjection: z.record(z.string(), z.unknown()).nullable().optional(),
+  ambiguity: z.array(z.string()),
+  unsupportedReason: z.string().nullable(),
 });
 
 /**
- * Writer boundary: SQL-only. The writer returns ONE SELECT + tablesUsed;
- * the coordinator builds the AST v2 deterministically in code via
- * sqlToAstV2 (no LLM hand-compiled JSON, no SQL/AST drift, no ~467-token
- * AST payload in coordinator history). `ast`/`astUnsupported` remain as
- * deprecated optionals so older prompts still validate; code ignores them.
+ * SQL writer boundary: SQL-only. Never emits AST. Uses the planner contract
+ * verbatim; never re-plans, invents fields/joins, or infers status rules.
  */
+export const SqlWriterSchema = z
+  .object({
+    kind: z.enum(["success", "unsupported", "clarification_required"]),
+    sql: z.string().nullable(),
+    message: z.string().nullable(),
+    reasonCode: z.string().nullable(),
+    tablesUsed: z.array(z.string()),
+    warnings: z.array(z.string()),
+  })
+  .superRefine((v, ctx) => {
+    if (v.kind === "success" && (v.sql === null || v.sql.trim() === "")) {
+      ctx.addIssue({ code: "custom", path: ["sql"], message: "kind success requires a non-empty sql string" });
+    }
+    if (v.sql !== null && /```/.test(v.sql)) {
+      ctx.addIssue({ code: "custom", path: ["sql"], message: "sql must be raw SQL text, never markdown-fenced" });
+    }
+  });
+
+/** Legacy writer shape (SQL-first path). Retained for migration only. */
 export const WriterSchema = z.object({
   query: z.string().min(1),
   ast: z.looseObject({}).catchall(z.unknown()).nullable().optional().default(null),
@@ -62,9 +83,53 @@ export const WriterSchema = z.object({
   reasoning: z.string().optional().default(""),
 });
 
-/** Main-agent final answer: terminal routing + certified-SQL handoff fields. */
+/** AST-native writer boundary. SQL is deliberately not accepted here. */
+export const AstWriterSchema = z
+  .object({
+    kind: z.enum(["success", "unsupported", "clarification_required"]),
+    ast: z.record(z.string(), z.unknown()).nullable(),
+    message: z.string().nullable(),
+    reasonCode: z.string().nullable(),
+    tablesUsed: z.array(z.string()),
+    warnings: z.array(z.string()),
+  })
+  .superRefine((v, ctx) => {
+    // Cheap structural guardrails so a hallucinated shape (e.g. from/fields
+    // instead of root/projection) fails HERE with a retryable message instead
+    // of dying later in code validation. Full v2 validation stays in code.
+    if (v.kind === "success") {
+      if (v.ast === null) {
+        ctx.addIssue({ code: "custom", path: ["ast"], message: "kind success requires a non-null ast object" });
+        return;
+      }
+      if (v.ast.version !== "2.0") {
+        ctx.addIssue({ code: "custom", path: ["ast", "version"], message: 'ast.version must be exactly "2.0"' });
+      }
+      if (!v.ast.root || typeof v.ast.root !== "object") {
+        ctx.addIssue({ code: "custom", path: ["ast", "root"], message: "ast must have a root {entity, alias} object" });
+      }
+      if (!v.ast.projection || typeof v.ast.projection !== "object") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["ast", "projection"],
+          message: "ast must have a projection {field, distinct, output} object",
+        });
+      }
+      for (const banned of ["from", "fields", "table", "select", "where_clause"]) {
+        if (banned in v.ast) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["ast"],
+            message: `ast must not contain key "${banned}" — use root/projection/joins/where/groupBy/having/orderBy/limit only`,
+          });
+        }
+      }
+    }
+  });
+
+/** Main-agent final answer: terminal routing + dual-output handoff fields. */
 export const FinalAnswerSchema = z.object({
-  kind: z.enum(["success", "blocked", "conversational", "error"]),
+  kind: z.enum(["success", "blocked", "conversational", "error", "unsupported", "clarification_required"]),
   sql: z.string().nullable(),
   /** Opaque AST-tool JSON from the writer subagent (validated in code). */
   ast: z.string().nullable(),
@@ -72,6 +137,7 @@ export const FinalAnswerSchema = z.object({
   conversationalResponse: z.string().nullable(),
   blockedMessage: z.string().nullable(),
   error: z.string().nullable(),
+  reasonCode: z.string().nullable().optional(),
   domain: z.string(),
   intent: z.string(),
   complexity: z.enum(["simple", "medium", "complex"]),
@@ -90,7 +156,9 @@ export type FinalAnswer = z.infer<typeof FinalAnswerSchema>;
 
 // Runtime variants: structured output via synthetic tool call (see header).
 export const PlannerResponse = toolStrategy(PlannerSchema);
+export const SqlWriterResponse = toolStrategy(SqlWriterSchema);
 export const WriterResponse = toolStrategy(WriterSchema);
+export const AstWriterResponse = toolStrategy(AstWriterSchema);
 export const CheckerResponse = toolStrategy(CheckerSchema);
 export const FinalAnswerResponse = toolStrategy(FinalAnswerSchema);
 
@@ -119,6 +187,7 @@ const TolerantFinalAnswerInput = z.object({
   conversationalResponse: z.string().nullable().optional(),
   blockedMessage: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
+  reasonCode: z.string().nullable().optional(),
   domain: z.string().optional(),
   intent: z.string().optional(),
   complexity: z.string().optional(),
@@ -138,7 +207,7 @@ export const finalAnswerTool = tool(
   {
     name: "FinalAnswer",
     description:
-      "Terminal answer. Call DIRECTLY (never via task, never delegate to a subagent), then stop. Include at least kind, sql, domain, intent, complexity, tablesUsed; use null for empty text fields and [] for empty lists. The task tool accepts ONLY planner|writer.",
+      "Terminal answer. Call DIRECTLY (never via task, never delegate to a subagent), then stop. Include at least kind, sql, domain, intent, complexity, tablesUsed; use null for empty text fields and [] for empty lists. The task tool accepts ONLY planner|sql-writer|ast-writer.",
     schema: TolerantFinalAnswerInput,
   }
 );

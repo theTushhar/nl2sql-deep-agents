@@ -1,11 +1,3 @@
-// Local per-LLM-call recorder: feeds `include_traces` + token telemetry.
-// The Langfuse CallbackHandler has no local aggregation API, so the envelope
-// previously reported llmTraces: [], tokens 0, calls 0 — on every path. This
-// handler rides the same invoke callbacks and records each chat completion
-// (stage-attributed via the `task` delegation stack), so success AND error
-// responses carry real per-call traces. Purely local: works with tracing
-// disabled, never throws, caps sizes for the 256KB response contract.
-
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import type { Serialized } from "@langchain/core/load/serializable";
 import type { BaseMessage } from "@langchain/core/messages";
@@ -13,9 +5,7 @@ import type { LLMResult } from "@langchain/core/outputs";
 import type { LlmCallTrace } from "../contracts/query-envelope";
 import { readModelName } from "./model";
 
-/** Per-field char cap (prompt + response each). */
 const MAX_TEXT_CHARS = 1200;
-/** Max recorded calls per request (first N win; bounds response size). */
 const MAX_CALLS = 40;
 
 interface PendingCall {
@@ -80,7 +70,7 @@ function promptFromMessages(messages: BaseMessage[][]): string {
 function parseTaskSubagent(input: string): string | null {
   try {
     const parsed = JSON.parse(input) as Record<string, unknown>;
-    for (const key of ["subagent_type", "subagentType", "name"]) {
+    for (const key of ["subagent_type", "subagentType", "subagent", "agent", "agentName", "name"]) {
       const v = parsed[key];
       if (typeof v === "string" && v.trim() !== "") return v.trim();
     }
