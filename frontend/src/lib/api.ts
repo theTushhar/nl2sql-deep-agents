@@ -86,6 +86,10 @@ export interface QueryPayload {
   domain?: string;
   /** Target SQL rendering dialect ('mysql' | 'mssql'). Default: 'mysql'. */
   dialect?: string;
+  /** Generate AST v2 output. Default: true. */
+  include_ast?: boolean;
+  /** Generate SQL output. Default: true. */
+  include_sql?: boolean;
   /** When true, includes deep per-stage LLM traces in telemetry. Default: false. */
   include_traces?: boolean;
   /** Optional caller request tracking id. Auto-generated if omitted. */
@@ -110,11 +114,17 @@ function normalizeEnvelope(json: any, statusCode: number): QueryResult {
   const data = json?.data && typeof json.data === "object" ? json.data : {};
   const meta = data?.meta && typeof data.meta === "object" ? data.meta : undefined;
   const telemetry = data?.telemetry && typeof data.telemetry === "object" ? data.telemetry : undefined;
+  const rawStatus = json?.status;
+  const status =
+    rawStatus === "error" ? "error"
+    : rawStatus === "unsupported" ? "unsupported"
+    : rawStatus === "clarification_required" ? "clarification_required"
+    : "success";
 
   return {
     requestId: json?.request_id,
     threadId: json?.thread_id,
-    status: json?.status === "error" ? "error" : json?.status === "unsupported" ? "unsupported" : "success",
+    status,
     statusCode,
     message: typeof data?.message === "string" ? data.message : null,
     sql: typeof data?.sql === "string" ? data.sql : null,
@@ -125,6 +135,7 @@ function normalizeEnvelope(json: any, statusCode: number): QueryResult {
       ? data.warnings.filter((w: unknown): w is string => typeof w === "string")
       : [],
     ast: Object.prototype.hasOwnProperty.call(data, "ast") ? data.ast : null,
+    reasonCode: typeof data?.reason_code === "string" ? data.reason_code : null,
     meta: meta
       ? {
           domain: meta.domain,

@@ -11,6 +11,10 @@ interface ChatInputProps {
   onDialectChange: (dialect: string) => void;
   includeTraces: boolean;
   onIncludeTracesChange: (value: boolean) => void;
+  includeSql: boolean;
+  onIncludeSqlChange: (value: boolean) => void;
+  includeAst: boolean;
+  onIncludeAstChange: (value: boolean) => void;
   onOpenPayloadInspector: () => void;
   isCustomPayloadActive: boolean;
 }
@@ -25,6 +29,10 @@ export function ChatInput({
   onDialectChange,
   includeTraces,
   onIncludeTracesChange,
+  includeSql,
+  onIncludeSqlChange,
+  includeAst,
+  onIncludeAstChange,
   onOpenPayloadInspector,
   isCustomPayloadActive,
 }: ChatInputProps) {
@@ -94,6 +102,30 @@ export function ChatInput({
           <span>TRACES</span>
           <span className={`custom-indicator-tag ${includeTraces ? "" : "off"}`}>
             {includeTraces ? "ON" : "OFF"}
+          </span>
+        </label>
+
+        <label className="toolbar-payload-btn" title="When on, backend returns certified SQL (include_sql)">
+          <input
+            type="checkbox"
+            checked={includeSql}
+            onChange={(e) => onIncludeSqlChange(e.target.checked)}
+          />
+          <span>SQL</span>
+          <span className={`custom-indicator-tag ${includeSql ? "" : "off"}`}>
+            {includeSql ? "ON" : "OFF"}
+          </span>
+        </label>
+
+        <label className="toolbar-payload-btn" title="When on, backend returns AST v2 JSON (include_ast)">
+          <input
+            type="checkbox"
+            checked={includeAst}
+            onChange={(e) => onIncludeAstChange(e.target.checked)}
+          />
+          <span>AST</span>
+          <span className={`custom-indicator-tag ${includeAst ? "" : "off"}`}>
+            {includeAst ? "ON" : "OFF"}
           </span>
         </label>
 

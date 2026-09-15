@@ -24,6 +24,10 @@ export default function App() {
     setSelectedDialect,
     includeTraces,
     setIncludeTraces,
+    includeSql,
+    setIncludeSql,
+    includeAst,
+    setIncludeAst,
     customPayload,
     setCustomPayload,
     lastRequestPayload,
@@ -67,6 +71,10 @@ export default function App() {
               onDialectChange={setSelectedDialect}
               includeTraces={includeTraces}
               onIncludeTracesChange={setIncludeTraces}
+              includeSql={includeSql}
+              onIncludeSqlChange={setIncludeSql}
+              includeAst={includeAst}
+              onIncludeAstChange={setIncludeAst}
               onOpenPayloadInspector={() => setSidebarTab("payload")}
               isCustomPayloadActive={customPayload !== null}
             />

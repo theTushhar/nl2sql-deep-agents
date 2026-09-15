@@ -19,6 +19,8 @@ export interface ExecuteOptions {
   domain: string;
   dialect: string;
   includeTraces: boolean;
+  includeSql: boolean;
+  includeAst: boolean;
   customPayload: QueryPayload | null;
 }
 
@@ -42,14 +44,16 @@ export function useQueryExecution({
 }: UseQueryExecutionParams) {
   const execute = useCallback(
     async (question: string, opts: ExecuteOptions) => {
-      const { domain, dialect, includeTraces, customPayload } = opts;
+      const { domain, dialect, includeTraces, includeSql, includeAst, customPayload } = opts;
       // Custom-payload edit mode wins verbatim, but toggles still provide
-      // sane defaults for fields the custom JSON omits.
+      // sane defaults for fields the custom JSON omits (including both flags).
       const payload: QueryPayload = customPayload
         ? {
             domain: domain || "default",
             dialect: dialect || "mysql",
             include_traces: includeTraces,
+            include_sql: includeSql,
+            include_ast: includeAst,
             ...customPayload,
             query: customPayload.query || question,
           }
@@ -58,6 +62,8 @@ export function useQueryExecution({
             domain: domain || "default",
             dialect: dialect || "mysql",
             include_traces: includeTraces,
+            include_ast: includeAst,
+            include_sql: includeSql,
           };
 
       const displayedQuestion = (payload.query as string) || question;
@@ -99,9 +105,34 @@ export function useQueryExecution({
           );
         }
 
+        // data.message is the human-readable answer for every kind.
+        const message = data.message?.trim() || "";
+
+        // Unsupported / clarification / generation-disagreement states.
+        if (data.status === "unsupported" || data.status === "clarification_required") {
+          const reason = data.reasonCode ? ` (${data.reasonCode})` : "";
+          addMessage(
+            "system",
+            <div className="answer-text">{`${message || "This search cannot be represented by the supported query contract."}${reason}`}</div>,
+          );
+          return;
+        }
+        const unresolved = data.meta?.unresolved || [];
+        const disagreement = unresolved.find((u) => u.includes("GENERATION_DISAGREEMENT"));
+        if (disagreement) {
+          addMessage("system", <div className="answer-text">{`SQL and AST branches disagree: ${disagreement}`}</div>);
+          return;
+        }
+        if (!data.sql && data.ast) {
+          addMessage(
+            "system",
+            <div className="answer-text">{message || "AST ready (SQL output disabled for this request). Inspect the AST in the payload panel."}</div>,
+          );
+          return;
+        }
+
         // data.message is the human-readable answer for every kind:
         // success (incl. conversational sql=null), blocked, error.
-        const message = data.message?.trim() || "";
         if (data.status === "error") {
           addMessage(
             "system",

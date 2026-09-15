@@ -6,6 +6,8 @@ export const STORAGE_KEYS = {
   DOMAIN: "INFOQA_DOMAIN",
   DIALECT: "INFOQA_DIALECT",
   INCLUDE_TRACES: "INFOQA_INCLUDE_TRACES",
+  INCLUDE_SQL: "INFOQA_INCLUDE_SQL",
+  INCLUDE_AST: "INFOQA_INCLUDE_AST",
 } as const;
 
 export const DOMAIN_OPTIONS = [
@@ -21,6 +23,8 @@ export const DIALECT_OPTIONS = [
 export const DEFAULT_DOMAIN = "default";
 export const DEFAULT_DIALECT = "mysql";
 export const DEFAULT_INCLUDE_TRACES = false;
+export const DEFAULT_INCLUDE_SQL = true;
+export const DEFAULT_INCLUDE_AST = true;
 
 export const STATUS_MESSAGES = {
   CONNECTING: "Connecting to backend...",

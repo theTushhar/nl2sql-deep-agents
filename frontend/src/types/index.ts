@@ -42,8 +42,8 @@ export interface QueryMeta {
 export interface QueryResult {
   requestId?: string;
   threadId?: string;
-  status?: "success" | "error" | "unsupported";
-  /** HTTP status code of the /api/query response (200 | 400 | 500). */
+  status?: "success" | "error" | "unsupported" | "clarification_required";
+  /** HTTP status code of the /api/query response (200 | 400 | 422 | 500). */
   statusCode?: number;
   /** Human-readable answer / status message (data.message). */
   message?: string | null;
@@ -52,6 +52,7 @@ export interface QueryResult {
   dialect?: string;
   warnings?: string[];
   ast?: unknown | null;
+  reasonCode?: string | null;
   meta?: QueryMeta;
   telemetry?: Telemetry;
   /** Verbatim caller passthrough fields echoed by the backend. */

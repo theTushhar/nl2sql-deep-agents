@@ -3,6 +3,8 @@ import type { QueryPayload } from "../lib/api";
 import {
   DEFAULT_DIALECT,
   DEFAULT_DOMAIN,
+  DEFAULT_INCLUDE_AST,
+  DEFAULT_INCLUDE_SQL,
   DEFAULT_INCLUDE_TRACES,
   STORAGE_KEYS,
 } from "../lib/constants";
@@ -53,12 +55,20 @@ export function useChat() {
   const [includeTraces, setIncludeTracesState] = useState<boolean>(() =>
     readStoredBool(STORAGE_KEYS.INCLUDE_TRACES, DEFAULT_INCLUDE_TRACES),
   );
+  const [includeSql, setIncludeSqlState] = useState<boolean>(() =>
+    readStoredBool(STORAGE_KEYS.INCLUDE_SQL, DEFAULT_INCLUDE_SQL),
+  );
+  const [includeAst, setIncludeAstState] = useState<boolean>(() =>
+    readStoredBool(STORAGE_KEYS.INCLUDE_AST, DEFAULT_INCLUDE_AST),
+  );
   const [customPayload, setCustomPayload] = useState<QueryPayload | null>(null);
   const [lastRequestPayload, setLastRequestPayload] = useState<QueryPayload>({
     query: "",
     domain: DEFAULT_DOMAIN,
     dialect: DEFAULT_DIALECT,
     include_traces: DEFAULT_INCLUDE_TRACES,
+    include_sql: DEFAULT_INCLUDE_SQL,
+    include_ast: DEFAULT_INCLUDE_AST,
   });
   const [lastResponsePayload, setLastResponsePayload] = useState<QueryResult | null>(null);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("telemetry");
@@ -78,6 +88,16 @@ export function useChat() {
   const setIncludeTraces = useCallback((value: boolean) => {
     setIncludeTracesState(value);
     writeStored(STORAGE_KEYS.INCLUDE_TRACES, String(value));
+  }, []);
+
+  const setIncludeSql = useCallback((value: boolean) => {
+    setIncludeSqlState(value);
+    writeStored(STORAGE_KEYS.INCLUDE_SQL, String(value));
+  }, []);
+
+  const setIncludeAst = useCallback((value: boolean) => {
+    setIncludeAstState(value);
+    writeStored(STORAGE_KEYS.INCLUDE_AST, String(value));
   }, []);
 
   const openInSqlRunner = useCallback((sql: string) => {
@@ -104,13 +124,15 @@ export function useChat() {
           domain: selectedDomain,
           dialect: selectedDialect,
           includeTraces,
+          includeSql,
+          includeAst,
           customPayload,
         });
       } finally {
         setIsStreaming(false);
       }
     },
-    [execute, selectedDomain, selectedDialect, includeTraces, customPayload],
+    [execute, selectedDomain, selectedDialect, includeTraces, includeSql, includeAst, customPayload],
   );
 
   return {
@@ -125,6 +147,10 @@ export function useChat() {
     setSelectedDialect,
     includeTraces,
     setIncludeTraces,
+    includeSql,
+    setIncludeSql,
+    includeAst,
+    setIncludeAst,
     customPayload,
     setCustomPayload,
     lastRequestPayload,
