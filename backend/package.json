@@ -12,7 +12,6 @@
     "test:coverage": "vitest run --coverage",
     "contract": "tsx -r dotenv/config tests/integration/contractCheck.ts",
     "eval:queries": "tsx -r dotenv/config tests/integration/query-eval.ts",
-    "prompts:check": "tsx scripts/prompts-check.ts",
     "deep:smoke": "tsx scripts/deep-smoke.ts"
   },
   "dependencies": {

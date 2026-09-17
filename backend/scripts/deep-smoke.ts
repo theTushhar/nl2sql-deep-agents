@@ -8,7 +8,8 @@ import { getDeepAgent, resetDeepAgent } from "../src/agent/agent";
 const stages = [
   "coordinator",
   "planner",
-  "writer",
+  "sql-writer",
+  "ast-writer",
 ];
 for (const stage of stages) {
   const body = loadStagePrompt(stage);
@@ -20,7 +21,7 @@ console.log(`[deep-smoke] tools: ${snapshotTools.map((t) => (t as { name: string
 
 const subs = buildSubagents();
 console.log(`[deep-smoke] subagents: ${subs.map((s) => s.name).join(", ")}`);
-if (subs.length !== 2) throw new Error(`Expected 2 subagents, got ${subs.length}`);
+if (subs.length !== 3) throw new Error(`Expected 3 subagents, got ${subs.length}`);
 for (const s of subs) {
   if (!s.description || !s.systemPrompt || !s.responseFormat) {
     throw new Error(`Subagent incomplete: ${s.name}`);

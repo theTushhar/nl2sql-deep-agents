@@ -1,10 +1,14 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import * as fs from "fs";
+import * as path from "path";
 import { serve } from "@hono/node-server";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { app } from "./server";
+import { resetDeepAgent } from "./agent/agent";
+import { resetPromptCache } from "./agent/prompts";
 import { flushTracing, isTracingEnabled, maskSpanData, shouldExportTraceSpan } from "./agent/tracing";
 import { validateEnv } from "./domain/env-validation";
 
@@ -52,6 +56,39 @@ function startTelemetry(): void {
   }
 }
 
+/**
+ * Dev hot-reload for prompt tuning: `tsx watch` restarts on .ts changes but
+ * ignores prompts/*.prompt.md. In non-production, watch that dir and drop
+ * the memoized prompt bodies + deep-agent singleton on change, so the next
+ * request picks up new wording with no restart. Never throws; no-op in
+ * production (replicas reload via redeploy).
+ */
+function watchPromptsDev(): void {
+  if ((process.env.NODE_ENV || "development") === "production") return;
+  try {
+    const dir = path.resolve(__dirname, "..", "prompts");
+    let pending: NodeJS.Timeout | null = null;
+    fs.watch(dir, (event, file) => {
+      const name = String(file ?? "");
+      if (!name.endsWith(".prompt.md") && name !== "_safety.md") return;
+      if (pending) clearTimeout(pending);
+      pending = setTimeout(() => {
+        pending = null;
+        try {
+          resetPromptCache();
+          resetDeepAgent();
+          console.log(`[prompts] reloaded ${event} ${name} — next request uses new wording.`);
+        } catch (err) {
+          console.warn("[prompts] hot-reload failed:", err instanceof Error ? err.message : String(err));
+        }
+      }, 250);
+    });
+    console.log("[prompts] watching prompts/ for hot-reload (dev only).");
+  } catch {
+    // Watch unavailable (e.g. packaged dist without prompts/) — restart to reload.
+  }
+}
+
 /** Bounded SDK shutdown (flushes pending spans, never hangs shutdown). */
 async function stopTelemetry(timeoutMs = 3000): Promise<void> {
   if (!otelSdk) return;
@@ -73,6 +110,7 @@ function start(): void {
   // P0-11: fail-fast on misconfiguration in production (warn-only in dev).
   validateEnv();
   startTelemetry();
+  watchPromptsDev();
   const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
     console.log(`[*] NlQuery_InfoQAAI running at http://${info.address}:${info.port}`);
     console.log(`[*] Health:   GET  http://localhost:${info.port}/health`);

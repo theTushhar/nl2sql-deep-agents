@@ -8,7 +8,7 @@ import { openApiSpec } from "./api/openapi-spec";
 import { answerQuestion } from "./agent/coordinator";
 import { flushTracing as flushTraces } from "./agent/tracing";
 import { DEFAULT_SNAPSHOT } from "./domain/config";
-import { QueryRequestSchema, getEffectiveQuery, getEffectiveDialect, getEffectiveDomain, getEffectiveIncludeTraces, getEffectiveIncludeAst, getEffectiveRequiredProjection, getEffectiveTimeContext, RESPONSE_MAX_BYTES } from "./api/request-schema";
+import { QueryRequestSchema, getEffectiveQuery, getEffectiveDialect, getEffectiveDomain, getEffectiveIncludeTraces, getEffectiveIncludeAst, getEffectiveIncludeSql, isDualOutputDisabled, getEffectiveRequiredProjection, getEffectiveTimeContext, RESPONSE_MAX_BYTES } from "./api/request-schema";
 import { toBackendEnvelope } from "./api/response-mapper";
 
 export const app = new Hono();
@@ -42,7 +42,10 @@ app.notFound((c) => {
 // OpenAPI Documentation & Swagger UI
 app.get("/openapi.json", (c) => c.json(openApiSpec));
 app.get("/docs", swaggerUI({ url: "/openapi.json" }));
-app.get("/swagger", swaggerUI({ url: "/openapi.json" }));
+app.get("/sw.js", (c) => {
+  c.header("Content-Type", "application/javascript");
+  return c.text("// no-op service worker", 200);
+});
 
 app.get("/health", (c) => {
   return c.json({
@@ -68,6 +71,12 @@ app.post(
     }
     if (!getEffectiveQuery(parsed.data)) {
       return c.json({ status: "error", error: "Field 'query' is required." }, 400);
+    }
+    if (isDualOutputDisabled(parsed.data)) {
+      return c.json(
+        { status: "error", error: "At least one of include_ast or include_sql must be true." },
+        400
+      );
     }
     return parsed.data;
   }),
@@ -103,6 +112,7 @@ app.post(
           dialect,
           domain,
           includeAst,
+          includeSql: getEffectiveIncludeSql(body),
           requiredProjection: getEffectiveRequiredProjection(body),
           timeContext: getEffectiveTimeContext(body),
         }),
@@ -131,9 +141,7 @@ app.post(
       }
       return c.json(payload, statusCode as 200 | 400 | 422 | 500);
     } catch (err) {
-      // P0-9: generic 500 — never echo err.message (upstream LLM text) to client.
-      // Timeout rejections are our own static strings (never LLM text), so a
-      // 504 with a fixed message is safe and keeps the socket from hanging.
+      console.error("[api/query] caught error:", err);
       if (err instanceof Error && err.message === "Request timed out") {
         return c.json({ status: "error", error: "Request timed out" }, 504);
       }

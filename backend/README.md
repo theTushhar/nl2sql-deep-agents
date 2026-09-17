@@ -6,8 +6,10 @@ writer → checker) under a single `LLM_MODEL`, and code-owned gates
 only emit statically-certified MySQL.
 
 Start here: `AGENTS.md` (default system prompt + repo rules), then
-`PROMPTMAP.md` (which prompt file to tune), then `docs/deep-agents.md`
-(full Deep Agents reference).
+`PROMPTMAP.md` (which prompt file to tune), then
+`../docs/KNOWLEDGE_BASE.md`, `../docs/DOCUMENTATION_AUDIT.md`, and
+`../docs/PERFORMANCE_OPTIMIZATION.md` for the repository reference, current
+review, and latency/token optimization plan.
 
 ## Prerequisites
 
@@ -61,16 +63,17 @@ Copy `.env.example` to `.env` and configure.
 
 | Parameter | Type | Required / Optional | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **`query`** | `string` | **Required** | — | Natural-language query (max 1500 chars). |
+| **`query`** | `string` | **Required** | — | Natural-language query (max 500 chars). |
 | **`domain`** | `string` | Optional | `"default"` | Target domain. `"all_test_sets"` pins UI grid subquery (`SELECT DISTINCT ts.TEST_SET_UUID`); `"default"` auto-routes. |
 | **`dialect`** | `string` | Optional | `"mysql"` | SQL rendering dialect (`"mysql"` or `"mssql"`). |
 | **`include_traces`** | `boolean` | Optional | `false` | Accepted for contract compat (deep-path traces live in Langfuse, not the payload). |
-| **`include_ast`** | `boolean` | Optional | `true` | AST v2 gate (`version: "2.0"`). Pass `false` to skip AST generation and receive `ast: null`. |
+| **`include_ast`** | `boolean` | Optional | `true` | AST v2 output gate (`version: "2.0"`). Pass `false` to skip the AST writer and receive `ast: null`. |
+| **`include_sql`** | `boolean` | Optional | `true` | SQL output/cost gate. Pass `false` to skip the SQL writer and receive `sql: null`. Requires the AST-native dual-writer pipeline. |
 | **`request_id`** | `string` | Optional | Auto-generated UUID | Unique transaction ID for logs & telemetry tracking (alias: `requestId`). |
 | **`thread_id`** | `string` | Optional | Auto-generated UUID | Conversational thread/session ID for multi-turn session tracking in Langfuse (alias: `threadId`). |
 | **`user_id`** | `string` | Optional | — | User identifier for session and telemetry tracking (alias: `userId`). |
 | **`context_filters`** | `object` | Optional | — | Accepted and ignored (no echo in the response). |
 | **`execute`** | `boolean` | Optional | `false` | Flag indicating whether the caller intends to execute the generated query against the DB. |
-| **`nl_query`** | `string` | Optional | — | Deprecated alias of `query`. |
-| **`question`** | `string` | Optional | — | Deprecated alias of `query`. |
+| **`nl_query`** | — | — | — | Not implemented; use canonical `query`. |
+| **`question`** | — | — | — | Not implemented; use canonical `query`. |
 
