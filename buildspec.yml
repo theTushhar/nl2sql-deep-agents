@@ -1,0 +1,101 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      # P1-4: align CI runtime with Dockerfile (node:22.x).
+      nodejs: 22
+    commands:
+      - echo "Installing kubectl"
+      - curl -Lo kubectl https://dl.k8s.io/release/v1.31.0/bin/linux/amd64/kubectl
+      - chmod +x kubectl
+      - mkdir -p "$HOME/bin"
+      - cp kubectl "$HOME/bin/kubectl"
+      - export PATH="$HOME/bin:$PATH"
+      - kubectl version --client
+
+  pre_build:
+    commands:
+      - echo "Configuring Git"
+      - git config --global user.email "$codecommit_email"
+      - git config --global user.name "$codecommit_username"
+      - git config --global credential.helper '!aws codecommit credential-helper $@'
+      - git config --global credential.UseHttpPath true
+
+      - echo "Configuring EKS"
+      - aws eks --region "$AWS_DEFAULT_REGION" update-kubeconfig --name "$AWS_CLUSTER_NAME"
+      - kubectl config current-context
+      - kubectl get svc
+
+      - echo "Logging into ECR"
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com"
+
+      - echo "Running backend typecheck, unit tests, build and security audit"
+      - cd backend && npm ci && npm run typecheck && npm test && npm run build && npm audit --audit-level=critical && cd ..
+
+      - echo "Running frontend static linting and build verification"
+      - export VITE_API_BASE_URL="https://nlquery-infoqaai.docs.infoapps.io"
+      - cd frontend && npm ci && npm run lint && npm run build && cd ..
+
+      - export BACKEND_REPOSITORY_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/infoqa-queryai-backend"
+      - export FRONTEND_REPOSITORY_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/infoqa-queryai-frontend"
+
+      - echo "BackendRepository=$BACKEND_REPOSITORY_URI"
+      - echo "FrontendRepository=$FRONTEND_REPOSITORY_URI"
+
+      - export IMAGE_TAG="$(echo "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c 1-7)"
+      - echo "ImageTag=$IMAGE_TAG"
+
+  build:
+    commands:
+      - echo "Building backend Docker image"
+      - docker build -t "$BACKEND_REPOSITORY_URI:$IMAGE_TAG" ./backend
+      - echo "Backend Docker image built successfully"
+
+      - echo "Building frontend Docker image"
+      - docker build --build-arg VITE_API_BASE_URL="https://nlquery-infoqaai.docs.infoapps.io" -t "$FRONTEND_REPOSITORY_URI:$IMAGE_TAG" ./frontend
+      - echo "Frontend Docker image built successfully"
+
+  post_build:
+    commands:
+      - echo "Pushing backend Docker image"
+      - docker push "$BACKEND_REPOSITORY_URI:$IMAGE_TAG"
+
+      - echo "Pushing frontend Docker image"
+      - docker push "$FRONTEND_REPOSITORY_URI:$IMAGE_TAG"
+
+      - echo "Preparing manifest repository"
+      - cd "$CODEBUILD_SRC_DIR"
+      - rm -rf "$info_ai_manifest_repo"
+
+      - echo "Cloning manifest repository"
+      - git clone "$info_ai_manifest_link" "$info_ai_manifest_repo"
+
+      - cd "$info_ai_manifest_repo"
+      - git checkout "$info_ai_manifest_branch"
+
+      - echo "Manifest repository ready"
+      - pwd
+      - find . -maxdepth 3 -type f
+
+      - echo "Updating backend deployment"
+      - 'sed -i "s|image:.*infoqa-queryai-backend.*|image: $BACKEND_REPOSITORY_URI:$IMAGE_TAG|g" NLQuery_InfoQAAI/backend-deployment.yml'
+
+      - echo "Updating frontend deployment"
+      - 'sed -i "s|image:.*infoqa-queryai-frontend.*|image: $FRONTEND_REPOSITORY_URI:$IMAGE_TAG|g" NLQuery_InfoQAAI/frontend-deployment.yml'
+
+      - echo "Checking manifest changes"
+      - git diff
+      - git status
+
+      - echo "Committing manifest changes"
+      - git add NLQuery_InfoQAAI/backend-deployment.yml
+      - git add NLQuery_InfoQAAI/frontend-deployment.yml
+      - git commit -m "Update NLQuery InfoQA backend and frontend images" || echo "No manifest changes to commit"
+
+      - echo "Pushing manifest changes"
+      - git push origin "$info_ai_manifest_branch"
+
+      - echo "NLQuery InfoQA build completed successfully"
+      - echo "BackendImage=$BACKEND_REPOSITORY_URI:$IMAGE_TAG"
+      - echo "FrontendImage=$FRONTEND_REPOSITORY_URI:$IMAGE_TAG"

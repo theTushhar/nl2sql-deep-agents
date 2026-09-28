@@ -1,0 +1,30 @@
+{
+  "name": "nlquery-infoqaai-frontend",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "description": "Frontend Web Interface for NL-to-SQL Data Intelligence Agent",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "vite --port 8080",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --port 8080",
+    "dev:proxy": "node dev-proxy.mjs",
+    "lint": "oxlint"
+  },
+  "dependencies": {
+    "mysql2": "^3.24.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "dotenv": "^16.4.5",
+    "oxlint": "^1.79.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.2"
+  }
+}

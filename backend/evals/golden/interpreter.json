@@ -1,0 +1,8 @@
+[
+  { "id": "int-01", "question": "Show active test cases", "expectedRules": ["RULE_ACTIVE_TEST_CASES"] },
+  { "id": "int-02", "question": "List draft test cases in my test sets", "expectedRules": ["RULE_DRAFT_TEST_CASES", "RULE_PERSONAL_TEST_SETS"] },
+  { "id": "int-03", "question": "Show my personal test sets", "expectedRules": ["RULE_PERSONAL_TEST_SETS"] },
+  { "id": "int-04", "question": "Show test step details containing login", "expectedRules": ["RULE_EXCLUDE_COMMENTED_STEPS"] },
+  { "id": "int-05", "question": "Show commented steps containing login", "expectedRules": [], "note": "Explicit opt-out defeats the default rule; legacy '*' trigger would wrongly apply it." },
+  { "id": "int-06", "question": "List orphan test suites", "expectedRules": ["RULE_ORPHAN_TEST_SETS"] }
+]

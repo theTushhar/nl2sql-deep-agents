@@ -1,0 +1,116 @@
+{
+  "runAt": "2026-09-23T05:45:33.231Z",
+  "summary": {
+    "mode": "live",
+    "endToEnd": "6/6",
+    "totalCostUsd": 0.00745
+  },
+  "rows": [
+    {
+      "id": "e2e-01",
+      "question": "How many test cases are in each test set?",
+      "domain": "default",
+      "tables": [
+        "TEST_SET",
+        "TEST_CASE"
+      ],
+      "rules": [],
+      "attempts": 1,
+      "certified": true,
+      "sql": "SELECT ts.TEST_SET_UUID, ts.TEST_SET_ID, ts.TEST_SET_NAME, COUNT(tc.TEST_CASE_UUID) AS TEST_CASE_COUNT\nFROM TEST_SET ts\nLEFT JOIN TEST_CASE tc ON ts.TEST_SET_UUID = tc.TEST_SET_UUID\nGROUP BY ts.TEST_SET_UUID, ts.TEST_SET_ID, ts.TEST_SET_NAME",
+      "warnings": [],
+      "failures": [],
+      "pass": true,
+      "costUsd": 0.001519
+    },
+    {
+      "id": "e2e-02",
+      "question": "Give ordered execution steps for test case 8735",
+      "domain": "default",
+      "tables": [
+        "TEST_CASE",
+        "TEST_CASE_STEP"
+      ],
+      "rules": [],
+      "attempts": 1,
+      "certified": true,
+      "sql": "SELECT tcs.TEST_CASE_STEP_UUID, tcs.TEST_CASE_STEP_NAME, tcs.TEST_CASE_STEP_SEQ_ID, tcs.TEST_CASE_STEP_TYPE, tcs.IS_FUNCTION_STEP, tcs.IS_COMMENTED_STEP\nFROM TEST_CASE_STEP tcs\nJOIN TEST_CASE tc ON tcs.TEST_CASE_UUID = tc.TEST_CASE_UUID\nWHERE tc.TEST_CASE_ID = 8735\nORDER BY tcs.TEST_CASE_STEP_SEQ_ID;",
+      "warnings": [],
+      "failures": [],
+      "pass": true,
+      "costUsd": 0.001009
+    },
+    {
+      "id": "e2e-03",
+      "question": "List test sets containing globalsqa",
+      "domain": "all_test_sets",
+      "tables": [
+        "TEST_SET",
+        "TEST_CASE",
+        "TEST_CASE_STEP"
+      ],
+      "rules": [],
+      "attempts": 1,
+      "certified": true,
+      "sql": "SELECT DISTINCT ts.TEST_SET_UUID\nFROM TEST_SET ts\nLEFT JOIN TEST_CASE tc ON ts.TEST_SET_UUID = tc.TEST_SET_UUID\nLEFT JOIN TEST_CASE_STEP tcs ON tc.TEST_CASE_UUID = tcs.TEST_CASE_UUID\nWHERE (\n  LOWER(ts.TEST_SET_NAME) LIKE '%globalsqa%'\n  OR LOWER(tc.TEST_CASE_NAME) LIKE '%globalsqa%'\n  OR LOWER(tcs.TEST_CASE_STEP_NAME) LIKE '%globalsqa%'\n) AND (tcs.IS_COMMENTED_STEP != 'Yes' OR tcs.IS_COMMENTED_STEP IS NULL)",
+      "warnings": [],
+      "failures": [],
+      "pass": true,
+      "costUsd": 0.002135
+    },
+    {
+      "id": "e2e-04",
+      "question": "Show active test cases",
+      "domain": "default",
+      "tables": [
+        "TEST_CASE"
+      ],
+      "rules": [
+        "RULE_ACTIVE_TEST_CASES"
+      ],
+      "attempts": 1,
+      "certified": true,
+      "sql": "SELECT tc.TEST_CASE_UUID, tc.TEST_CASE_ID, tc.TEST_CASE_NAME, tc.TEST_CASE_STATUS, tc.LATEST_RUN_STATUS FROM TEST_CASE tc WHERE tc.TEST_CASE_STATUS = 'COMMITTED'",
+      "warnings": [],
+      "failures": [],
+      "pass": true,
+      "costUsd": 0.000886
+    },
+    {
+      "id": "e2e-05",
+      "question": "Show my personal test sets",
+      "domain": "all_test_sets",
+      "tables": [
+        "TEST_SET"
+      ],
+      "rules": [
+        "RULE_PERSONAL_TEST_SETS"
+      ],
+      "attempts": 1,
+      "certified": true,
+      "sql": "SELECT DISTINCT ts.TEST_SET_UUID FROM TEST_SET ts WHERE ts.TEST_SET_TYPE = 'Personal'",
+      "warnings": [],
+      "failures": [],
+      "pass": true,
+      "costUsd": 0.000934
+    },
+    {
+      "id": "e2e-06",
+      "question": "Show test step details containing login",
+      "domain": "default",
+      "tables": [
+        "TEST_CASE_STEP"
+      ],
+      "rules": [
+        "RULE_EXCLUDE_COMMENTED_STEPS"
+      ],
+      "attempts": 1,
+      "certified": true,
+      "sql": "SELECT tcs.TEST_CASE_STEP_UUID, tcs.TEST_CASE_UUID, tcs.TEST_SET_UUID, tcs.TEST_CASE_STEP_ID, tcs.TEST_CASE_STEP_NAME, tcs.TEST_CASE_STEP_SEQ_ID, tcs.TEST_CASE_STEP_TYPE, tcs.IS_FUNCTION_STEP, tcs.IS_COMMENTED_STEP FROM TEST_CASE_STEP tcs WHERE (LOWER(tcs.TEST_CASE_STEP_NAME) LIKE '%login%') AND (tcs.IS_COMMENTED_STEP != 'Yes' OR tcs.IS_COMMENTED_STEP IS NULL)",
+      "warnings": [],
+      "failures": [],
+      "pass": true,
+      "costUsd": 0.000967
+    }
+  ]
+}

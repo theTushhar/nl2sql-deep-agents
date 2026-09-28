@@ -1,0 +1,38 @@
+[
+  {
+    "id": "e2e-01",
+    "question": "How many test cases are in each test set?",
+    "mustContain": ["COUNT", "TEST_SET_UUID", "GROUP BY"],
+    "mustNotContain": ["INSERT", "DROP", "LIMIT", "TEST_SET_DESCRIPTION"]
+  },
+  {
+    "id": "e2e-02",
+    "question": "Give ordered execution steps for test case 8735",
+    "mustContain": ["8735", "TEST_CASE_STEP", "IS_COMMENTED_STEP"],
+    "mustNotContain": ["INSERT", "DROP", "TEST_SET_DESCRIPTION"]
+  },
+  {
+    "id": "e2e-03",
+    "question": "List test sets containing globalsqa",
+    "mustContain": ["TEST_SET_UUID", "LIKE", "globalsqa"],
+    "mustNotContain": ["INSERT", "DROP", "LIMIT", "TEST_SET_DESCRIPTION"]
+  },
+  {
+    "id": "e2e-04",
+    "question": "Show active test cases",
+    "mustContain": ["COMMITTED"],
+    "mustNotContain": ["INSERT", "DROP", "TEST_SET_DESCRIPTION"]
+  },
+  {
+    "id": "e2e-05",
+    "question": "Show my personal test sets",
+    "mustContain": ["TEST_SET_UUID", "Personal"],
+    "mustNotContain": ["INSERT", "DROP", "TEST_SET_DESCRIPTION"]
+  },
+  {
+    "id": "e2e-06",
+    "question": "Show test step details containing login",
+    "mustContain": ["LIKE", "login", "IS_COMMENTED_STEP"],
+    "mustNotContain": ["INSERT", "DROP", "TEST_SET_DESCRIPTION"]
+  }
+]

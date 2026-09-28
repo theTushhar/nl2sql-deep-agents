@@ -1,0 +1,7 @@
+[
+  { "id": "route-01", "question": "Show my personal test sets", "expectedDomain": "all_test_sets", "expectedSub": "personal_test_set" },
+  { "id": "route-02", "question": "List test sets containing globalsqa", "expectedDomain": "all_test_sets", "expectedSub": null },
+  { "id": "route-03", "question": "How many test cases are in each test set?", "expectedDomain": "default", "expectedSub": null },
+  { "id": "route-04", "question": "Give ordered execution steps for test case 8735", "expectedDomain": "default", "expectedSub": null },
+  { "id": "route-05", "question": "Show failed test runs from last week with status breakdown", "expectedDomain": "default", "expectedSub": null }
+]
