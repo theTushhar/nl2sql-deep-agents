@@ -1,8 +1,14 @@
 ---
 name: sql-critic
-owner: src/agents/sql-critic.agent.ts
+version: 1.0
+owner: src/deepagents/subagents.ts
 used_by: critiqueSql()
 when: after every writer attempt; deterministic static checks run first and force valid=false regardless of this prompt's verdict
+description: SQL validation checklist. Tune semantic checks here; exact structural gates live in sql-guardrails.ts.
+model_env: LLM_MODEL
+model_fallback: gpt-4o-mini
+temperature: 0.0
+json_mode: true
 variables: dialect, column_whitelist, relevant_tables, allowed_binds
 ---
 

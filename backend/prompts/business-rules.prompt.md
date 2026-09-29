@@ -1,8 +1,14 @@
 ---
 name: business-rules
-owner: src/agents/business-rules.agent.ts
+version: 1.0
+owner: src/deepagents/subagents.ts
 used_by: interpretRules()
 when: after explore; selects business-rule IDs by meaning (code joins the SQL clauses deterministically, so the model never writes SQL fragments)
+description: Business-rule selection by meaning. Tune selection guidance here; rule text lives in domain-config.
+model_env: LLM_MODEL
+model_fallback: gpt-4o-mini
+temperature: 0.0
+json_mode: true
 variables: rule_list
 ---
 

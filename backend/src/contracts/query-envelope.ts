@@ -43,13 +43,14 @@ export interface Telemetry {
 export interface ProdEnvelope {
   requestEcho: RequestEcho;
   sql: string | null;
-  /** Canonical DB-neutral SQL (REGEXP/LIKE-neutral logical form). */
+  /** Canonical DB-neutral SQL (portable LIKE form). */
   dbNeutralQuery: string | null;
   /**
-   * Deterministic AST JSON (v1-clean, `ast_version: "0.1.0"`) for the
-   * certified query. Null when `include_ast: false` skips the buildAstTool.
-   * Shape: `{ ast_version, select, from, joins?, where?, group_by?,
-   * order_by?, limit? }` — see `src/orchestration/sql-ast.ts`.
+   * AST v2 JSON (version "2.0") derived from the certified SQL by the
+   * ast-generator tool. Null on unsupported / clarification / include_ast=false.
+   * Never a weakened AST.
+   * Shape: `{ version, root, projection, joins?, where?, groupBy?, having?,
+   * orderBy?, limit? }` — see `src/contracts/query-ast-v2.ts`.
    */
   ast: unknown | null;
   /** Effective rendering dialect (mysql | mssql). */
@@ -58,6 +59,8 @@ export interface ProdEnvelope {
   filteringMetadata: FilteringMetadata | null;
   warnings: string[];
   error: string | null;
+  /** Machine reason code for unsupported / clarification (e.g. UNSUPPORTED_OPERATION). Null on success. */
+  reasonCode: string | null;
   unresolved: string[];
   telemetry: Telemetry;
   meta: {
@@ -67,5 +70,30 @@ export interface ProdEnvelope {
     tablesUsed?: string[];
     modelsUsed?: Record<string, string>;
     configSnapshotRef?: string;
+  };
+}
+
+/** One tool/trigger invocation record (feeds telemetry.toolTriggers). */
+export interface TriggerRecord {
+  name: string;
+  outcome: string;
+}
+
+/** Per-request trigger/trace recorder (org audit requirement). */
+export interface Tracker {
+  record(name: string, outcome: string): void;
+  list(): TriggerRecord[];
+}
+
+/** In-memory tracker factory. */
+export function createTracker(): Tracker {
+  const records: TriggerRecord[] = [];
+  return {
+    record(name: string, outcome: string): void {
+      records.push({ name, outcome });
+    },
+    list(): TriggerRecord[] {
+      return [...records];
+    },
   };
 }

@@ -1,7 +1,7 @@
-// P0-11: validated environment contract. Called once at boot (see index.ts).
-// Production fail-fast on missing secrets; development warns only so the
-// clearly-labeled local LLM fallback keeps working key-less. Never throws
-// on import — only when validateEnv() is invoked.
+// Validated environment contract. Called once at boot (see index.ts).
+// Production fail-fast on missing secrets; development warns only (requests
+// fail at call time without a key — the key-less stub was removed). Never
+// throws on import — only when validateEnv() is invoked.
 
 function hasKey(name: string): boolean {
   const v = process.env[name]?.trim() || "";

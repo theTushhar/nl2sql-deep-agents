@@ -88,24 +88,14 @@ export interface QueryPayload {
   dialect?: string;
   /** When true, includes deep per-stage LLM traces in telemetry. Default: false. */
   include_traces?: boolean;
-  /** CamelCase alias for include_traces. */
-  includeTraces?: boolean;
-  /** Optional caller request tracking id (alias: requestId). Auto-generated if omitted. */
+  /** Optional caller request tracking id. Auto-generated if omitted. */
   request_id?: string;
-  /** CamelCase alias for request_id. */
-  requestId?: string;
-  /** Optional conversation thread/session id (alias: threadId). Auto-generated if omitted. */
+  /** Optional conversation thread/session id. Auto-generated if omitted. */
   thread_id?: string;
-  /** CamelCase alias for thread_id. */
-  threadId?: string;
   /** Optional user identifier for session and telemetry tracking. */
   user_id?: string;
-  /** CamelCase alias for user_id. */
-  userId?: string;
   /** Optional tenant or execution context filters (echoed back verbatim). */
   context_filters?: Record<string, unknown>;
-  /** CamelCase alias for context_filters. */
-  contextFilters?: Record<string, unknown>;
   /**
    * @deprecated Passthrough only — the backend accepts and echoes `execute`
    * but never executes SQL server-side. Execution happens only via the
@@ -122,9 +112,9 @@ function normalizeEnvelope(json: any, statusCode: number): QueryResult {
   const telemetry = data?.telemetry && typeof data.telemetry === "object" ? data.telemetry : undefined;
 
   return {
-    requestId: json?.request_id ?? json?.requestId,
-    threadId: json?.thread_id ?? json?.threadId,
-    status: json?.status === "error" ? "error" : "success",
+    requestId: json?.request_id,
+    threadId: json?.thread_id,
+    status: json?.status === "error" ? "error" : json?.status === "unsupported" ? "unsupported" : "success",
     statusCode,
     message: typeof data?.message === "string" ? data.message : null,
     sql: typeof data?.sql === "string" ? data.sql : null,
@@ -164,11 +154,6 @@ export async function executeQuery(payload: QueryPayload): Promise<QueryResult> 
     include_traces: false,
     ...payload,
   };
-  // Drop the deprecated camelCase duplicate when snake_case is authoritative
-  // to keep the echoed payload clean; backend accepts either.
-  if (body.include_traces !== undefined && body.includeTraces !== undefined) {
-    delete body.includeTraces;
-  }
 
   const response = await fetch(`${config.apiBaseUrl}/api/query`, {
     method: "POST",

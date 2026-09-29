@@ -1,12 +1,14 @@
 # NlQuery_InfoQAAI - Backend
 
-Hono 4.x HTTP service for Natural Language to SQL synthesis. A deterministic
-coordinator delegates to scoped LLM agents (input-guard, query-normalizer,
-domain-router, schema-explorer, business-rules, sql-writer + sql-critic) and
-only emits critic-certified MySQL.
+Hono 4.x HTTP service for Natural Language to SQL synthesis. A LangChain Deep
+Agents runtime (`createDeepAgent`) runs isolated subagents (input-guard,
+query-normalizer, domain-router, schema-explorer, business-rules, sql-writer +
+sql-critic, ast-generator) under a single `LLM_MODEL`, and code-owned gates
+only emit statically-certified MySQL.
 
 Start here: `AGENTS.md` (default system prompt + repo rules), then
-`PROMPTMAP.md` (which prompt file to tune).
+`PROMPTMAP.md` (which prompt file to tune), then `docs/deep-agents.md`
+(full Deep Agents reference).
 
 ## Prerequisites
 
@@ -28,18 +30,19 @@ Copy `.env.example` to `.env` and configure.
 ## Project Structure
 
 - `src/server.ts` — Hono app: `POST /api/query`, health, schema/skills discovery.
-- `src/orchestration/query-coordinator.ts` — deterministic pipeline (never authors SQL).
-- `src/orchestration/llm-client.ts` — cheap-tier LLM client with Langfuse generations.
-- `src/orchestration/observability.ts` — Langfuse trace/session/user wiring + per-request records.
-- `src/orchestration/certification-gate.ts` — writer+critic retry loop (only SQL exit path).
-- `src/agents/` — input-guard, query-normalizer, domain-router, schema-explorer,
-  business-rules, sql-writer, sql-critic, response-composer (+ sql-guardrails).
+- `src/deepagents/` — THE runtime: `agent.ts` (`createDeepAgent`), `subagents.ts`
+  (9 stages), `tools.ts` (snapshot readers), `schemas.ts` (responseFormats),
+  `ast.ts` (AST validation), `model.ts` (single `LLM_MODEL`), `tracing.ts`
+  (Langfuse), `coordinator-deep.ts` (invoke → code gates → envelope).
+- `src/orchestration/` — deterministic code gates (never authors SQL, never calls
+  the LLM): `sql-ast.ts`, `response-composer.ts`, `sql-guardrails.ts`.
 - `src/contracts/` — frozen prod envelope (Zod schema + validation).
 - `src/config/domain-config.ts` — schema registry + business jargon rules.
 - `src/api/` — request schema, response mapper, OpenAPI spec.
 - `prompts/` — `*.prompt.md` templates loaded at runtime (must ship with `dist/`).
-- `skills/` — `SKILL.md` prompt packs layered into generation (must ship with `dist/`).
-- `evals/` — contract checks and shadow-phase harnesses.
+- `skills/` — Agent Skills spec packs, served natively with progressive disclosure
+  (must ship with `dist/`).
+- `evals/` — live contract checks (`npm run contract`) + golden fixtures.
 
 ## API Endpoints
 
@@ -60,8 +63,8 @@ Copy `.env.example` to `.env` and configure.
 | **`query`** | `string` | **Required** | — | Natural-language query (max 1500 chars). |
 | **`domain`** | `string` | Optional | `"default"` | Target domain. `"all_test_sets"` pins UI grid subquery (`SELECT DISTINCT ts.TEST_SET_UUID`); `"default"` auto-routes. |
 | **`dialect`** | `string` | Optional | `"mysql"` | SQL rendering dialect (`"mysql"` or `"mssql"`). |
-| **`include_traces`** | `boolean` | Optional | `false` | When `true`, includes deep per-stage LLM traces (`prompt` & `response`) in `data.telemetry`. Defaults to `false` for clean payloads. |
-| **`include_ast`** | `boolean` | Optional | `true` | AST tool gate (v1-clean, `ast_version: "0.1.0"`). Pass `false` to skip the `buildAstTool` call and receive `ast: null`. |
+| **`include_traces`** | `boolean` | Optional | `false` | Accepted for contract compat (deep-path traces live in Langfuse, not the payload). |
+| **`include_ast`** | `boolean` | Optional | `true` | AST v2 gate (`version: "2.0"`). Pass `false` to skip the ast-generator subagent and receive `ast: null`. |
 | **`request_id`** | `string` | Optional | Auto-generated UUID | Unique transaction ID for logs & telemetry tracking (alias: `requestId`). |
 | **`thread_id`** | `string` | Optional | Auto-generated UUID | Conversational thread/session ID for multi-turn session tracking in Langfuse (alias: `threadId`). |
 | **`user_id`** | `string` | Optional | — | User identifier for session and telemetry tracking (alias: `userId`). |

@@ -14,6 +14,7 @@ function base(): ProdEnvelope {
     filteringMetadata: null,
     warnings: [],
     error: null,
+    reasonCode: null,
     unresolved: [],
     telemetry: {},
     meta: {},
@@ -33,19 +34,42 @@ describe("validateEnvelope", () => {
       ...base(),
       sql: "SELECT 1",
       dbNeutralQuery: "SELECT 1",
-      ast: { ast_version: "0.1.0", select: [{ col: "ts.A" }], from: { table: "T", as: "ts" } },
+      ast: {
+        version: "2.0",
+        root: { entity: "TEST_SET", alias: "ts" },
+        projection: { field: { kind: "field", alias: "ts", field: "TEST_SET_UUID" }, distinct: true, output: "PARENT_UUID" },
+      },
     };
     expect(validateEnvelope(e, "success")).toEqual([]);
   });
 
-  it("rejects malformed v1-clean AST", () => {
+  it("rejects malformed v2 AST", () => {
     const e = {
       ...base(),
       sql: "SELECT 1",
       dbNeutralQuery: "SELECT 1",
-      ast: { ast_version: "0.1.0", select: [], from: { table: "T", as: "ts" } },
+      ast: { version: "2.0", root: { entity: "T", alias: "ts" } },
     };
     expect(validateEnvelope(e, "success").some((i) => i.path.startsWith("ast."))).toBe(true);
+  });
+
+  it("rejects v1-clean AST (v2-only contract)", () => {
+    const e = {
+      ...base(),
+      sql: "SELECT 1",
+      dbNeutralQuery: "SELECT 1",
+      ast: { ast_version: "0.1.0", select: [{ col: "ts.A" }], from: { table: "T", as: "ts" } },
+    };
+    expect(validateEnvelope(e, "success").some((i) => i.path.startsWith("ast."))).toBe(true);
+  });
+
+  it("requires reasonCode on unsupported and clarification_required", () => {
+    const u = { ...base(), sql: "SELECT 1", dbNeutralQuery: "SELECT 1", ast: null, reasonCode: null as string | null };
+    expect(validateEnvelope(u, "unsupported").some((i) => i.path === "reasonCode")).toBe(true);
+    const u2 = { ...u, reasonCode: "UNSUPPORTED_OPERATION" };
+    expect(validateEnvelope(u2, "unsupported")).toEqual([]);
+    const c = { ...base(), sql: null, ast: null, reasonCode: "CLARIFICATION_REQUIRED" };
+    expect(validateEnvelope(c, "clarification_required")).toEqual([]);
   });
 
   it("allows ast:null on success when include_ast=false was echoed", () => {

@@ -15,19 +15,22 @@
 
 ## 1. What this service is
 
-Hono 4.x HTTP service. Deterministic query coordinator delegates to scoped
-LLM agents (`input-guard → query-normalizer → domain-router →
-schema-explorer + business-rules → certification-gate → response-composer`)
-and only emits critic-certified, read-only MySQL/MSSQL.
+Hono 4.x HTTP service. LangChain Deep Agents runtime (`createDeepAgent`) runs
+the NL-to-SQL pipeline (`input-guard → query-normalizer (domain-agnostic) →
+domain resolution (pinned request domain wins, router only for
+default/unpinned) → domain-rephraser → schema-explorer + business-rules →
+sql-writer → sql-critic → ast-generator`)
+and only emits statically-certified, read-only MySQL/MSSQL. Single model
+(`LLM_MODEL`) for the main agent and all subagents.
 
 Runtime halves (Deep Agents pattern):
 
 ```
 client (Swagger / frontend / curl)
   ── POST /api/query ──▶ agent server (this backend)
-                          ├─ agent runtime (src/agents/*)
-                          ├─ tools, skills, config snapshot
-                          └─ Langfuse tracing
+                           ├─ agent runtime (src/deepagents/*)
+                           ├─ tools, skills, config snapshot
+                           └─ Langfuse tracing
 ```
 
 ## 2. Default system prompt (all agents inherit tone + safety)
@@ -51,24 +54,28 @@ Stage prompts in `prompts/*.prompt.md` extend this — they never replace it.
 backend/
 ├── AGENTS.md                  ← this file (default prompt + rules)
 ├── PROMPTMAP.md               ← prompt tuning index (which .md to edit)
-├── prompts/                   ← LLM prompt text ONLY ({{variables}} filled by code)
+├── prompts/                   ← LLM prompt text ONLY (facts arrive via tools + task description)
 │   ├── input-guard.prompt.md
 │   ├── query-normalizer.prompt.md
 │   ├── domain-router.prompt.md
 │   ├── schema-explorer.prompt.md
 │   ├── business-rules.prompt.md
 │   ├── sql-writer.prompt.md
-│   └── sql-critic.prompt.md
+│   ├── sql-critic.prompt.md
+│   └── ast-generator.prompt.md
 ├── skills/                    ← Agent Skills spec packs (SKILL.md per skill)
 │   ├── general/query-writing/SKILL.md
 │   ├── domains/all-test-sets/SKILL.md
 │   └── critic/query-critic/SKILL.md
 ├── src/
-│   ├── agents/                ← one folder/file per pipeline agent (was subagents/)
-│   ├── orchestration/         ← coordinator + certification-gate (was shell/)
-│   ├── prompting/             ← prompt template loader (was src/prompts/loader.ts)
-│   ├── skills/                ← skill loader (skill-loader.ts)
-│   ├── tools/                 ← read-only snapshot tools (snapshot-tools.ts, schema-formatter.ts)
+│   ├── deepagents/            ← THE runtime: agent.ts, subagents.ts, tools.ts,
+│   │                             schemas.ts, ast.ts, model.ts (LLM_MODEL),
+│   │                             tracing.ts, prompts.ts, types.ts, coordinator-deep.ts
+│   ├── orchestration/         ← deterministic code gates (never authors SQL):
+│   │                             coordinator-deep support — sql-ast.ts,
+│   │                             response-composer.ts, sql-guardrails.ts
+│   ├── prompting/             ← prompt template loader (for scripts/prompts-check.ts)
+│   ├── tools/                 ← schema-formatter.ts (used by deepagents/tools.ts)
 │   ├── config/                ← domain-config.ts (schema + jargon rules), env-validation.ts
 │   ├── api/                   ← Hono routes + schemas (was http/ + docs/)
 │   └── contracts/             ← frozen prod envelope (query-envelope.ts)
@@ -77,13 +84,13 @@ backend/
 
 Naming rules:
 
-- `src/agents/<stage>.agent.ts` — agent logic (LLM call + parsing).
-  `debugger.ts` was renamed to `query-normalizer.agent.ts` because it
-  normalizes queries; it never debugs code.
-- `src/orchestration/` — deterministic pipeline shell (never authors SQL).
-  `shell/` was renamed because "shell" means terminal to most engineers.
-- `prompts/<stage>.prompt.md` — prompt filename MUST match its agent file.
-- `src/tools/` — pure, read-only data accessors over the config snapshot.
+- `src/deepagents/<area>.ts` — one concern per file (model, prompts, tools,
+  schemas, subagents, ast, tracing, coordinator). No per-stage `.agent.ts`
+  files: stages are `SubAgent` entries in `subagents.ts`.
+- `src/orchestration/` — deterministic gates + pure composition (never authors
+  SQL, never calls the LLM).
+- `prompts/<stage>.prompt.md` — prompt filename MUST match its subagent `name`.
+- `src/tools/` — pure formatters over the config snapshot.
   No keyword scoring, no regex intent matching.
 
 ## 4. Core development principles (from Deep Agents AGENTS.md)
@@ -101,13 +108,13 @@ Naming rules:
 ## 5. Prompt tuning (no code changes needed)
 
 1. Find the behavior row in `PROMPTMAP.md`.
-2. Edit ONLY the `.prompt.md` file. Keep `{{variables}}` intact and keep
-   STRICT JSON schemas byte-identical unless you also update the parser
-   in the matching `src/agents/*.agent.ts`.
+2. Edit ONLY the `.prompt.md` file. Keep output-shape blocks aligned with the
+   matching zod schema in `src/deepagents/schemas.ts` (strict SQL/AST
+   validation lives in code and does not change).
 3. Verify: `npm run typecheck`, then the render-check in `PROMPTMAP.md`.
 
-Prompt text lives in `prompts/`; code only computes `{{variables}}`.
-Never duplicate prompt wording into `.ts` files.
+Prompt text lives in `prompts/`; subagents fetch facts via tools + task
+description. Never duplicate prompt wording into `.ts` files.
 
 ## 6. Adding a skill (Agent Skills spec + progressive disclosure)
 
@@ -139,40 +146,48 @@ Rules (Deep Agents community):
 - Specific descriptions (`Extract text from PDFs… Use when…`) beat vague
   ones (`Helps with PDFs`). Overlapping descriptions degrade selection —
   consolidate instead of multiplying skills.
-- Register in `src/skills/skill-loader.ts` (`resolveSkillsForContext`) and
-  in `GET /api/v1/skills` (`src/server.ts` or `src/api/*`).
+- Register skill packs in `src/deepagents/subagents.ts` (`skills` per subagent)
+  and in `GET /api/v1/skills` (`src/server.ts`).
 
 ## 7. Adding a subagent (Deep Agents subagent spec)
 
-Each agent is `{name, description, system_prompt, tools, model, skills}`:
+Each subagent is `{name, description, systemPrompt, tools, responseFormat, skills}`:
 
 | Field | Required | Notes |
 |---|---|---|
-| `name` | yes | kebab-case, e.g. `schema-explorer` |
-| `description` | yes | Action-oriented; coordinator uses it to decide delegation |
-| `system_prompt` | yes (isolated mode) | = body of `prompts/<name>.prompt.md`; isolated agents see only the delegated task |
-| `tools` | no | Minimal set only; inherits main agent's tools if omitted |
-| `model` | no | `provider:model` override; omit to inherit (generic `resolveLlmModel("SIMPLE_MODEL"\|"COMPLEX_MODEL")`) |
+| `name` | yes | kebab-case, e.g. `schema-explorer`; MUST match `prompts/<name>.prompt.md` |
+| `description` | yes | Action-oriented; main agent uses it to decide delegation |
+| `systemPrompt` | yes (isolated mode) | = body of `prompts/<name>.prompt.md`; isolated agents see only the delegated task |
+| `tools` | no | Minimal set only (snapshot readers); `[]` when the stage needs none |
+| `model` | no | Always omitted — every subagent inherits the single `LLM_MODEL` |
+| `responseFormat` | no | zod schema from `src/deepagents/schemas.ts`; parent receives JSON |
 | `skills` | no | Skill source paths; isolated per agent (not shared with parent) |
 
 Steps:
 
-1. Create `src/agents/<name>.agent.ts` exporting `<verb><Noun>` +
-   `Input`/`Output` types (see `schema-explorer.agent.ts`).
-2. Create `prompts/<name>.prompt.md` with frontmatter
+1. Create `prompts/<name>.prompt.md` with frontmatter
    `name/owner/used_by/when/variables`.
-3. Export from `src/agents/index.ts` (`agents-registry`).
-4. Wire into `src/orchestration/query-coordinator.ts` in order;
-   record stage + triggers for telemetry.
+2. Add the zod `responseFormat` to `src/deepagents/schemas.ts`.
+3. Add the `SubAgent` entry in `src/deepagents/subagents.ts` in pipeline order.
+4. Extend the coordinator workflow in `src/deepagents/agent.ts` system prompt.
 5. Add prompt row to `PROMPTMAP.md`.
 
 Prefer `isolated` (default) for context quarantine. Use `fork` only to
 continue work the parent already started.
 
+Deep Agents runtime (`src/deepagents/`): prompt-driven over `createDeepAgent` —
+`model.ts` (single-`LLM_MODEL` factory), `schemas.ts` (zod `responseFormat`),
+`tools.ts` (read-only snapshot as `tool()`s), `subagents.ts` (9 stages,
+`systemPrompt` loaded from `prompts/*.prompt.md`), `agent.ts`
+(`memory: ["./AGENTS.md"]`, `skills: ["/skills/"]`, `FilesystemBackend`,
+`MemorySaver`), `tracing.ts` (Langfuse trace per request), `coordinator-deep.ts`
+(delegates the workflow, then fail-closed code gates + `composeResponse`).
+Verify offline with `npm run deep:smoke` (no LLM cost).
+
 ## 8. Config ownership (schema + business jargon)
 
 Single source: `src/config/domain-config.ts` (`DEFAULT_SNAPSHOT`).
-Subagents never touch it directly — only via `loadSnapshot()` + tools.
+Subagents never touch it directly — only via snapshot `tool()`s.
 
 - `domains[].allowedTables` — domain scope. Empty = all tables.
 - `tables[]` — `table_name, alias, description, primaryKey,
@@ -188,10 +203,12 @@ Subagents never touch it directly — only via `loadSnapshot()` + tools.
 ## 9. Verification
 
 ```powershell
-npm run typecheck   # tsc --noEmit
-npm test            # vitest run (23 tests)
-npm run contract    # live contract checks (needs OPENAI_API_KEY)
+npm run typecheck    # tsc --noEmit
+npm test             # vitest run (unit, no LLM)
+npm run prompts:check# prompt frontmatter + variable match (no LLM)
+npm run deep:smoke   # deep wiring constructs offline (no LLM)
+npm run contract     # live contract checks (needs LLM key)
 ```
 
-Search hygiene: target `src/agents`, `src/orchestration`, `prompts`,
+Search hygiene: target `src/deepagents`, `src/orchestration`, `prompts`,
 `skills`, `src/config`. Exclude `node_modules`, `dist`.

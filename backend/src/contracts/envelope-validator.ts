@@ -1,70 +1,32 @@
 // Frozen prod envelope: zod schema + validation + safety scans.
 // Shape rules:
 // - requestEcho mirrors the caller metadata unchanged.
-// - sql: domain-neutral string honoring the input dialect; null/blank ONLY
-//   for conversational and blocked paths.
+// - sql: rendered dialect SQL; dbNeutralQuery: canonical neutral SQL.
+//   Null/blank ONLY for conversational, blocked, error, clarification.
+//   Unsupported keeps certified SQL + ast:null + reasonCode.
 // - aiResponse: always-present, formal, proper human-readable string.
-// - filteringMetadata: AST-style intent separate from the SQL text.
-// - telemetry: totals + per-subagent breakdown + per-trigger tracking.
-// - meta: logical names only, models, config ref. No skill versions.
+// - reasonCode: required on unsupported / clarification_required.
+// - ast: strict v2 only (version "2.0"); v1-clean no longer accepted.
+// - filteringMetadata, telemetry, meta as before. No skill versions.
 // - Safety: responses never carry DB details or sensitive column detail.
 
 import { z } from "zod";
 import type { ProdEnvelope } from "./query-envelope";
-import { AST_VERSION } from "../orchestration/sql-ast";
+import { QueryAstV2Schema } from "./query-ast-v2";
 
 export { type ProdEnvelope } from "./query-envelope";
 
-// v1-clean AST schema (mirrors src/orchestration/sql-ast.ts).
-// Omit-when-empty on the wire: only ast_version/select/from are required.
-const AstLeafSchema = z.object({
-  col: z.string().min(1),
-  op: z.enum(["=", "<>", ">", "<", ">=", "<=", "LIKE", "REGEXP"]),
-  val: z.union([z.string(), z.number(), z.boolean(), z.null()]),
-});
-
-type AstConditionZod = z.infer<typeof AstLeafSchema> | { and: AstConditionZod[] } | { or: AstConditionZod[] } | { raw: string };
-const AstConditionSchema: z.ZodType<AstConditionZod> = z.union([
-  AstLeafSchema,
-  z.object({ and: z.array(z.lazy((): z.ZodType<AstConditionZod> => AstConditionSchema)) }),
-  z.object({ or: z.array(z.lazy((): z.ZodType<AstConditionZod> => AstConditionSchema)) }),
-  z.object({ raw: z.string() }),
-]);
-
-export const AstV1CleanSchema = z.object({
-  ast_version: z.literal(AST_VERSION),
-  select: z
-    .array(
-      z.union([
-        z.object({ col: z.string().min(1), as: z.string().optional(), distinct: z.boolean().optional() }),
-        z.object({ count: z.string().min(1), as: z.string().optional(), distinct: z.boolean().optional() }),
-      ])
-    )
-    .min(1),
-  from: z.object({ table: z.string().min(1), as: z.string() }),
-  joins: z
-    .array(
-      z.object({
-        type: z.enum(["INNER", "LEFT", "RIGHT", "FULL"]),
-        table: z.string().min(1),
-        as: z.string(),
-        on: z.string().min(1),
-      })
-    )
-    .optional(),
-  where: AstConditionSchema.nullable().optional(),
-  group_by: z.array(z.string().min(1)).optional(),
-  order_by: z.array(z.object({ col: z.string().min(1), dir: z.enum(["ASC", "DESC"]) })).optional(),
-  limit: z.number().int().min(1).optional(),
-});
+// v2-only AST: strict contract, no v1 fallback, no raw escape hatch.
+export const AstV2StrictSchema = QueryAstV2Schema;
 
 export const ProdEnvelopeSchema = z.object({
-  requestEcho: z.record(z.unknown()),
+  requestEcho: z.record(z.string(), z.unknown()),
   sql: z.string().nullable(),
   dbNeutralQuery: z.string().nullable().optional(),
   ast: z.unknown().nullable().optional(),
   dialect: z.string().optional(),
   aiResponse: z.string().min(1),
+  reasonCode: z.string().nullable().optional(),
   filteringMetadata: z
     .object({
       measures: z.array(z.string()).optional(),
@@ -79,10 +41,10 @@ export const ProdEnvelopeSchema = z.object({
   unresolved: z.array(z.string()),
   telemetry: z.object({
     latencyMs: z.number().optional(),
-    tokenCounts: z.record(z.object({ in: z.number(), out: z.number() })).optional(),
-    cost: z.record(z.number()).optional(),
+    tokenCounts: z.record(z.string(), z.object({ in: z.number(), out: z.number() })).optional(),
+    cost: z.record(z.string(), z.number()).optional(),
     toolTriggers: z.array(z.object({ name: z.string(), outcome: z.string() })).optional(),
-    retryCounts: z.record(z.number()).optional(),
+    retryCounts: z.record(z.string(), z.number()).optional(),
     traceId: z.string().optional(),
     llmTraces: z
       .array(
@@ -105,7 +67,7 @@ export const ProdEnvelopeSchema = z.object({
     intent: z.string().optional(),
     complexity: z.string().optional(),
     tablesUsed: z.array(z.string()).optional(),
-    modelsUsed: z.record(z.string()).optional(),
+    modelsUsed: z.record(z.string(), z.string()).optional(),
     configSnapshotRef: z.string().optional(),
   }),
 });
@@ -131,18 +93,18 @@ export interface EnvelopeIssue {
 /** Full freeze validation: shape + null-SQL rules + leak scan. */
 export function validateEnvelope(
   envelope: ProdEnvelope,
-  kind: "success" | "blocked" | "conversational" | "error"
+  kind: "success" | "blocked" | "conversational" | "error" | "unsupported" | "clarification_required"
 ): EnvelopeIssue[] {
   const issues: EnvelopeIssue[] = [];
   const shape = ProdEnvelopeSchema.safeParse(envelope);
   if (!shape.success) {
-    for (const err of shape.error.errors) {
+    for (const err of shape.error.issues) {
       issues.push({ path: err.path.join("."), message: err.message });
     }
     return issues;
   }
 
-  if ((kind === "blocked" || kind === "conversational") && envelope.sql !== null) {
+  if ((kind === "blocked" || kind === "conversational" || kind === "clarification_required") && envelope.sql !== null) {
     issues.push({ path: "sql", message: `${kind} envelopes must carry null SQL.` });
   }
   // P2-3: simplified redundant condition (was kind===success||error && kind===success).
@@ -153,24 +115,35 @@ export function validateEnvelope(
     if (envelope.dbNeutralQuery === null || (typeof envelope.dbNeutralQuery === "string" && envelope.dbNeutralQuery.trim() === "")) {
       issues.push({ path: "dbNeutralQuery", message: "success envelopes must carry DB-neutral SQL." });
     }
-    // v1-clean: AST is required on success UNLESS the caller opted out via
-    // include_ast=false (echoed in requestEcho by server.ts passthrough).
+    // AST is required on success UNLESS the caller opted out via
+    // include_ast=false (echoed in requestEcho by server.ts passthrough) or
+    // the AST tool failed while certified SQL stands (AST_VALIDATION_FAILED
+    // marker in unresolved — SQL success with ast:null, never weakened AST).
     const echo = (envelope.requestEcho || {}) as Record<string, unknown>;
-    const astOptOut = echo["include_ast"] === false || echo["includeAst"] === false;
+    const astOptOut = echo["include_ast"] === false;
+    const astToolFailed = (envelope.unresolved || []).some((u) => String(u).includes("AST_VALIDATION_FAILED"));
     if (envelope.ast === null || envelope.ast === undefined) {
-      if (!astOptOut) {
+      if (!astOptOut && !astToolFailed) {
         issues.push({ path: "ast", message: "success envelopes must carry AST JSON." });
       }
     } else if (typeof envelope.ast === "object" && envelope.ast !== null) {
-      // Strict v1-clean shape check (tool output is deterministic, so any
-      // failure here means drift or a hand-built envelope).
-      const parsed = AstV1CleanSchema.safeParse(envelope.ast);
+      // Strict v2-only: any AST object must parse as QueryAstV2.
+      const parsed = QueryAstV2Schema.safeParse(envelope.ast);
       if (!parsed.success) {
-        for (const err of parsed.error.errors) {
+        for (const err of parsed.error.issues) {
           issues.push({ path: `ast.${err.path.join(".")}`, message: err.message });
         }
       }
     }
+  }
+  if (kind === "unsupported" && envelope.ast !== null) {
+    issues.push({ path: "ast", message: "unsupported envelopes must carry ast:null." });
+  }
+  if ((kind === "unsupported" || kind === "clarification_required") && !envelope.reasonCode) {
+    issues.push({ path: "reasonCode", message: `${kind} envelopes must carry reasonCode.` });
+  }
+  if (kind === "clarification_required" && envelope.ast !== null) {
+    issues.push({ path: "ast", message: "clarification_required envelopes must carry ast:null." });
   }
 
   const userText = `${envelope.aiResponse}\n${envelope.error || ""}`;

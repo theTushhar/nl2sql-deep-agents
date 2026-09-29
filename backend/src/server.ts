@@ -5,10 +5,10 @@ import { validator } from "hono/validator";
 import { randomUUID } from "crypto";
 import { swaggerUI } from "@hono/swagger-ui";
 import { openApiSpec } from "./api/openapi-spec";
-import { answerQuestion } from "./orchestration/query-coordinator";
-import { flushTraces } from "./orchestration/observability";
+import { answerQuestion } from "./deepagents/coordinator-deep";
+import { flushTracing as flushTraces } from "./deepagents/tracing";
 import { DEFAULT_SNAPSHOT } from "./config/domain-config";
-import { QueryRequestSchema, getEffectiveQuery, getEffectiveDialect, getEffectiveDomain, getEffectiveIncludeTraces, getEffectiveIncludeAst } from "./api/query-request.schema";
+import { QueryRequestSchema, getEffectiveQuery, getEffectiveDialect, getEffectiveDomain, getEffectiveIncludeTraces, getEffectiveIncludeAst, getEffectiveRequiredProjection, getEffectiveTimeContext, RESPONSE_MAX_BYTES } from "./api/query-request.schema";
 import { toBackendEnvelope } from "./api/response-mapper";
 
 export const app = new Hono();
@@ -77,12 +77,12 @@ app.post(
       const body = c.req.valid("json");
       const question = getEffectiveQuery(body)!;
 
-      const paramRequestId = c.req.query("request_id") || c.req.query("requestId");
-      const bodyRequestId = body.request_id || body.requestId;
+      const paramRequestId = c.req.query("request_id");
+      const bodyRequestId = body.request_id;
       const requestId = paramRequestId || bodyRequestId || `req-${randomUUID()}`;
 
-      const paramThreadId = c.req.query("thread_id") || c.req.query("threadId");
-      const bodyThreadId = body.thread_id || body.threadId;
+      const paramThreadId = c.req.query("thread_id");
+      const bodyThreadId = body.thread_id;
       const threadId = paramThreadId || bodyThreadId || `thr-${randomUUID()}`;
 
       const domain = getEffectiveDomain(body);
@@ -105,19 +105,30 @@ app.post(
 
       const includeAst = getEffectiveIncludeAst(body);
 
-      const { envelope, kind } = await answerQuestion({
-        echo: {
-          ...passthroughEcho,
-          requestId,
-          threadId,
-          domain,
+      // Outer request guard: answerQuestion is internally bounded, but this
+      // guarantees the socket always gets a response (504, never a hang)
+      // even if a future pipeline step stalls outside that budget.
+      const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS) || 150000;
+      const { envelope, kind } = await Promise.race([
+        answerQuestion({
+          echo: {
+            ...passthroughEcho,
+            requestId,
+            threadId,
+            domain,
+            dialect,
+          },
+          question,
           dialect,
-        },
-        question,
-        dialect,
-        domain,
-        includeAst,
-      });
+          domain,
+          includeAst,
+          requiredProjection: getEffectiveRequiredProjection(body),
+          timeContext: getEffectiveTimeContext(body),
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Request timed out")), REQUEST_TIMEOUT_MS)
+        ),
+      ]);
 
       const includeTraces = getEffectiveIncludeTraces(body);
 
@@ -133,9 +144,18 @@ app.post(
       // Await the flush BEFORE responding: fire-and-forget previously let
       // responses return before spans were exported, losing traces.
       await flushTraces().catch(() => undefined);
-      return c.json(payload, statusCode as 200 | 400);
-    } catch {
+      // Contract limit: response body 256KB (deployment config, not model value).
+      if (JSON.stringify(payload).length > RESPONSE_MAX_BYTES) {
+        return c.json({ status: "error", error: "Response exceeds 256KB limit" }, 500);
+      }
+      return c.json(payload, statusCode as 200 | 400 | 422);
+    } catch (err) {
       // P0-9: generic 500 — never echo err.message (upstream LLM text) to client.
+      // Timeout rejections are our own static strings (never LLM text), so a
+      // 504 with a fixed message is safe and keeps the socket from hanging.
+      if (err instanceof Error && err.message === "Request timed out") {
+        return c.json({ status: "error", error: "Request timed out" }, 504);
+      }
       return c.json({ status: "error", error: "Internal server error" }, 500);
     }
   }
@@ -157,7 +177,8 @@ app.get("/api/v1/schema", (c) => {
 });
 
 app.get("/api/v1/skills", (c) => {
-  // Skill names mirror the loader convention; bodies stay server-side.
+  // Skill pack names served natively by the deep agent (SkillsMiddleware);
+  // bodies stay server-side under skills/<group>/<skill>/SKILL.md.
   return c.json({
     skills: [{ name: "query-writing" }, { name: "all-test-sets" }, { name: "query-critic" }],
   });

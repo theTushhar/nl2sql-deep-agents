@@ -12,10 +12,18 @@ export interface StaticRules {
 
 export interface LlmGuard {
   enabled: boolean;
+  /** Legacy tier knob — ignored for model selection (single LLM_MODEL wins). */
   fast_model: "gpt-4o-mini" | "gpt-4.1-mini";
   temperature: number;
   allowed_intent_types: string[];
   blocked_intent_types: string[];
+}
+
+export interface DomainProjection {
+  /** single-uuid: grid-filter subquery projecting exactly one DISTINCT UUID column. flexible: honor the question intent. */
+  kind: "single-uuid" | "flexible";
+  /** UUID column for single-uuid projections (e.g. TEST_SET_UUID). */
+  column?: string;
 }
 
 export interface DomainEntry {
@@ -25,6 +33,10 @@ export interface DomainEntry {
   allowedTables: string[];
   subDomains: string[];
   useSchemaFinder: boolean;
+  /** Projection contract enforced by validators (data, not hardcoded branches). */
+  projection: DomainProjection;
+  /** Skill packs available to generation for this domain (served natively via SkillsMiddleware). */
+  skills: string[];
 }
 
 export interface TableColumn {
@@ -124,6 +136,8 @@ export const DEFAULT_SNAPSHOT: ConfigSnapshot = {
       allowedTables: ["TEST_SET", "TEST_CASE", "TEST_CASE_STEP"],
       subDomains: ["personal_test_set", "user_action_test_set", "api_test_set", "ui_locator_test_set"],
       useSchemaFinder: false,
+      projection: { kind: "single-uuid", column: "TEST_SET_UUID" },
+      skills: ["all-test-sets"],
     },
     {
       canonical_name: "default",
@@ -132,6 +146,8 @@ export const DEFAULT_SNAPSHOT: ConfigSnapshot = {
       allowedTables: [],
       subDomains: [],
       useSchemaFinder: true,
+      projection: { kind: "flexible" },
+      skills: [],
     },
   ],
   tables: [
@@ -154,6 +170,8 @@ export const DEFAULT_SNAPSHOT: ConfigSnapshot = {
         { name: "VIEW_UUID", type: "VARCHAR(36)", searchable: false },
         { name: "FUNCTIONAL_AREA_UUID", type: "VARCHAR(36)", searchable: false },
         { name: "TEST_SET_OWNER", type: "VARCHAR(36)", searchable: false },
+        { name: "AE_INSERT_TS", type: "DATETIME", searchable: false, description: "Audit insert timestamp for relative-date filtering" },
+        { name: "AE_UPDATE_TS", type: "DATETIME", searchable: false, description: "Audit update timestamp for relative-date filtering" },
       ],
       joins: [
         { target: "TEST_CASE", on: "ts.TEST_SET_UUID = tc.TEST_SET_UUID", type: "ONE_TO_MANY" },
@@ -175,6 +193,8 @@ export const DEFAULT_SNAPSHOT: ConfigSnapshot = {
         { name: "TEST_CASE_EXECUTON_TYPE", type: "VARCHAR(50)", searchable: false },
         { name: "LATEST_RUN_STATUS", type: "VARCHAR(50)", searchable: false },
         { name: "LATEST_RUN_UUID", type: "VARCHAR(36)", searchable: false },
+        { name: "AE_INSERT_TS", type: "DATETIME", searchable: false, description: "Audit insert timestamp for relative-date filtering" },
+        { name: "AE_UPDATE_TS", type: "DATETIME", searchable: false, description: "Audit update timestamp for relative-date filtering" },
       ],
       joins: [
         { target: "TEST_SET", on: "tc.TEST_SET_UUID = ts.TEST_SET_UUID", type: "MANY_TO_ONE" },
@@ -195,7 +215,9 @@ export const DEFAULT_SNAPSHOT: ConfigSnapshot = {
         { name: "TEST_CASE_STEP_SEQ_ID", type: "INT", searchable: false, description: "The step order or sequence number" },
         { name: "TEST_CASE_STEP_TYPE", type: "VARCHAR(50)", searchable: false, description: "The type of the step" },
         { name: "IS_FUNCTION_STEP", type: "VARCHAR(5)", searchable: false },
-        { name: "IS_COMMENTED_STEP", type: "VARCHAR(5)", searchable: false, description: "Whether the step is commented, values 'TRUE'/'FALSE'" },
+        { name: "IS_COMMENTED_STEP", type: "VARCHAR(5)", searchable: false, description: "Whether the step is commented, values 'Yes'/'No'" },
+        { name: "AE_INSERT_TS", type: "DATETIME", searchable: false, description: "Audit insert timestamp for relative-date filtering" },
+        { name: "AE_UPDATE_TS", type: "DATETIME", searchable: false, description: "Audit update timestamp for relative-date filtering" },
       ],
       joins: [
         { target: "TEST_CASE", on: "tcs.TEST_CASE_UUID = tc.TEST_CASE_UUID", type: "MANY_TO_ONE" },

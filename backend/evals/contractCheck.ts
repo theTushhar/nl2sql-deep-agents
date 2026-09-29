@@ -1,20 +1,19 @@
-// Contract checks over live coordinator runs plus direct composer unit paths.
-// Validates the frozen envelope over live coordinator runs plus direct
-// composer unit paths (exhausted-retry error path needs no LLM):
+// Contract checks over live deep-agents coordinator runs plus direct composer
+// unit paths. Validates the frozen envelope:
 // 1. Shape validation passes for every kind.
-// 2. SQL byte-identity: success envelope sql === certified string.
+// 2. SQL byte-identity: success envelope sql is a certified string.
 // 3. Null-SQL rules for blocked / conversational / error.
 // 4. Request echo mirrored unchanged.
 // 5. No-leak scan on user-facing text.
 // 6. Exhausted path carries joined validation messages and null SQL.
-// Usage: npm run contract (live when OPENAI_API_KEY is set).
+// Usage: npm run contract (live when the LLM key is set).
 
 import "dotenv/config";
 import * as assert from "assert";
-import { answerQuestion } from "../src/orchestration/query-coordinator";
-import { composeResponse } from "../src/agents/response-composer";
+import { answerQuestion } from "../src/deepagents/coordinator-deep";
+import { composeResponse } from "../src/orchestration/response-composer";
 import { validateEnvelope } from "../src/contracts/envelope-validator";
-import { certifySql } from "../src/orchestration/certification-gate";
+import { runStaticChecks } from "../src/orchestration/sql-guardrails";
 import { loadSnapshot } from "../src/config/domain-config";
 
 function checkIssues(kind: string, issues: Array<{ path: string; message: string }>): void {
@@ -71,7 +70,7 @@ async function main(): Promise<void> {
     })
   );
 
-  // Live: full coordinator paths.
+  // Live: full deep-agents coordinator paths.
   const success = await answerQuestion({
     echo: { requestId: "contract-success-1", caller: "contract-check" },
     question: "List test sets containing globalsqa",
@@ -81,28 +80,18 @@ async function main(): Promise<void> {
   assert.deepStrictEqual(success.envelope.requestEcho, { requestId: "contract-success-1", caller: "contract-check" });
   checkIssues("success", validateEnvelope(success.envelope, "success"));
 
-  // Byte-identity: re-derive certification is not needed — the envelope sql
-  // must equal the gate output. Re-run certify inputs is out of scope here;
-  // instead assert the sql matches a fresh independent certification run.
+  // independent re-verification: the envelope sql must pass the same static
+  // gate the coordinator enforces (fail-closed, in code — never prompts).
   const snapshot = loadSnapshot();
-  const recert = await certifySql({
-    canonical_query: "List test sets containing globalsqa",
-    domain: "all_test_sets",
-    dialect: "mysql",
-    relevantTables: ["TEST_SET"],
-    searchScope: ["TEST_SET.TEST_SET_NAME"],
-    likePattern: "%globalsqa%",
-    operator: "LIKE",
-    measures: [],
-    filters: [],
-    orderBy: [],
-    complexity: "medium",
+  const recert = runStaticChecks(
+    success.envelope.sql as string,
+    ["TEST_SET", "TEST_CASE", "TEST_CASE_STEP"],
+    [],
     snapshot,
-  });
-  if (recert.certified) {
-    assert.strictEqual(typeof success.envelope.sql, "string");
-    assert.ok((success.envelope.sql as string).toUpperCase().includes("SELECT"));
-  }
+    { dialect: "mysql", domain: success.envelope.meta.domain || "default" }
+  );
+  assert.deepStrictEqual(recert.errors, [], `re-verification errors: ${recert.errors.join("; ")}`);
+  assert.ok((success.envelope.sql as string).toUpperCase().includes("SELECT"));
 
   const blocked = await answerQuestion({
     echo: { requestId: "contract-blocked-1" },

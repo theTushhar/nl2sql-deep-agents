@@ -1,8 +1,14 @@
 ---
 name: schema-explorer
-owner: src/agents/schema-explorer.agent.ts
+version: 1.0
+owner: src/deepagents/subagents.ts
 used_by: exploreSchema()
 when: after routing; picks relevant tables, search scope, LIKE pattern, complexity (code filters unknown tables/columns deterministically; non-default domains override relevantTables deterministically)
+description: Table relevance and search scope. Isolated context: sees only schema slice + canonical query. Tune relevance rules here.
+model_env: LLM_MODEL
+model_fallback: gpt-4o-mini
+temperature: 0.0
+json_mode: true
 variables: schema_facts, searchable_columns, domain
 ---
 

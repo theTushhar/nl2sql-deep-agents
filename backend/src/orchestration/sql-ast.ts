@@ -15,7 +15,7 @@
 //   text — the tool never drops information, never returns empty select.
 // - Returns null ONLY when no FROM table is found (truly unparseable).
 
-import type { Tracker } from "../tools/snapshot-tools";
+import type { Tracker } from "../contracts/query-envelope";
 
 export const AST_VERSION = "0.1.0" as const;
 

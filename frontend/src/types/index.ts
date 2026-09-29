@@ -42,7 +42,7 @@ export interface QueryMeta {
 export interface QueryResult {
   requestId?: string;
   threadId?: string;
-  status?: "success" | "error";
+  status?: "success" | "error" | "unsupported";
   /** HTTP status code of the /api/query response (200 | 400 | 500). */
   statusCode?: number;
   /** Human-readable answer / status message (data.message). */

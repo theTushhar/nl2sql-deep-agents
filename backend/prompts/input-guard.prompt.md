@@ -1,8 +1,14 @@
 ---
 name: input-guard
-owner: src/agents/input-guard.agent.ts
+version: 1.0
+owner: src/deepagents/subagents.ts
 used_by: analyzeGuardrail()
 when: first gate on every request, before any other subagent
+description: Safety and intent classification. Tune intent definitions and policy facts here; code only supplies variables.
+model_env: LLM_MODEL
+model_fallback: gpt-4o-mini
+temperature: 0.0
+json_mode: true
 variables: snapshot_ref, min_length, max_length, blocked_keywords, allowed_intents, blocked_intents
 ---
 

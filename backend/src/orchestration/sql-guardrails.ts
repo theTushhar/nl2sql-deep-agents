@@ -39,7 +39,7 @@ function extractAliasColumns(sql: string): Array<{ alias: string; column: string
 export interface StaticCheckOptions {
   /** Rendering dialect (mysql | mssql). Defaults to mysql. */
   dialect?: string;
-  /** Resolved domain for projection gating (all_test_sets enforces UUID invariant). */
+  /** Resolved domain for projection gating (read from snapshot domain entry). */
   domain?: string;
 }
 
@@ -216,10 +216,15 @@ export function runStaticChecks(
     errors.push(`${op} predicate on non-searchable column '${qualified}'. Use a SEARCHABLE column.`);
   }
 
-  // 4c. Domain projection gate: all_test_sets is a UUID grid filter.
-  if (domain === "all_test_sets") {
-    if (!/^SELECT\s+DISTINCT\s+[A-Za-z][\w]*\.TEST_SET_UUID\s+FROM\b/i.test(trimmed)) {
-      errors.push("all_test_sets must project exactly SELECT DISTINCT ts.TEST_SET_UUID.");
+  // 4c. Domain projection gate (data-driven: single-uuid domains are grid
+  // filters projecting exactly one DISTINCT UUID column; flexible domains
+  // skip this gate). The rule text lives in the domain skill prompt.
+  const domainEntry = snapshot.domains.find((d) => d.canonical_name.toLowerCase() === domain.toLowerCase());
+  if (domainEntry?.projection.kind === "single-uuid" && domainEntry.projection.column) {
+    const col = domainEntry.projection.column;
+    const singleUuid = new RegExp(`^SELECT\\s+DISTINCT\\s+[A-Za-z][\\w]*\\.${col}\\s+FROM\\b`, "i").test(trimmed);
+    if (!singleUuid) {
+      errors.push(`${domainEntry.canonical_name} must project exactly SELECT DISTINCT alias.${col}.`);
     }
   }
 
@@ -238,4 +243,35 @@ export function runStaticChecks(
   }
 
   return { errors, warnings, usedTables };
+}
+
+/**
+ * Deterministic veto over LLM error claims.
+ * Static facts win: an LLM "wildcard projection" error is dropped when the
+ * SQL contains no `*` projection, and an LLM "non-searchable column" error is
+ * dropped when every pattern predicate in the SQL targets a SEARCHABLE
+ * column. All other LLM errors pass through untouched.
+ * Pure function — unit-testable without LLM calls.
+ */
+export function vetoLlmFalsePositives(
+  llmErrors: string[],
+  sql: string,
+  snapshot: ConfigSnapshot
+): { kept: string[]; vetoed: string[] } {
+  const kept: string[] = [];
+  const vetoed: string[] = [];
+  const wildcardClean = !hasWildcardProjection(sql);
+  const searchableClean = findNonSearchablePredicates(sql, snapshot).length === 0;
+  for (const e of llmErrors) {
+    if (wildcardClean && /wildcard/i.test(e)) {
+      vetoed.push(e);
+      continue;
+    }
+    if (searchableClean && /non-?searchable/i.test(e)) {
+      vetoed.push(e);
+      continue;
+    }
+    kept.push(e);
+  }
+  return { kept, vetoed };
 }

@@ -1,15 +1,12 @@
-// Response composer subagent.
+// Response composer (deterministic envelope assembly).
 // PURE composition: no tools, no LLM calls. Assembles the frozen envelope
 // from certified or terminal upstream state. Formal, proper tone on every
 // path. SQL byte-identity holds by construction: the certified string is
 // assigned by reference, never rewritten.
 
-import type { ProdEnvelope } from "../contracts/query-envelope";
-import type { CertifiedResult } from "../orchestration/certification-gate";
-import type { TriggerRecord } from "../tools/snapshot-tools";
-import type { LlmCallRecord } from "../orchestration/observability";
+import type { ProdEnvelope, TriggerRecord, LlmCallTrace } from "../contracts/query-envelope";
 
-export type ComposerKind = "success" | "blocked" | "conversational" | "error";
+export type ComposerKind = "success" | "blocked" | "conversational" | "error" | "unsupported" | "clarification_required";
 
 export interface StageRecord {
   model: string;
@@ -29,10 +26,13 @@ export interface ComposerInput {
   dbNeutralQuery?: string | null;
   /** Deterministic AST JSON for the certified query. */
   ast?: unknown | null;
-  cert: CertifiedResult | null;
+  /** Opaque certification detail (kept for forward-compat; never read). */
+  cert: unknown | null;
   conversationalResponse: string | null;
   blockedMessage: string | null;
   error: string | null;
+  /** Machine reason code for unsupported / clarification (e.g. UNSUPPORTED_OPERATION). */
+  reasonCode?: string | null;
   warnings: string[];
   unresolved: string[];
   filteringMetadata: ProdEnvelope["filteringMetadata"];
@@ -48,7 +48,7 @@ export interface ComposerInput {
   configSnapshotRef: string;
   modelsLive: boolean;
   /** Per-LLM-call records (optional so unit callers need not supply them). */
-  llmTraces?: LlmCallRecord[];
+  llmTraces?: LlmCallTrace[];
   question?: string;
   canonical_query?: string;
 }
@@ -65,11 +65,23 @@ function intentPhrase(intent: string): string {
   return "It returns a filtered result";
 }
 
+const UNSUPPORTED_MESSAGE =
+  "This search cannot be represented by the supported query contract.";
+
 export function composeResponse(input: ComposerInput): ProdEnvelope {
   if (input.kind === "success" && (input.certifiedSql === null || input.certifiedSql.trim() === "")) {
     throw new Error("Composer invariant violated: success requires certified SQL.");
   }
-  if (input.kind !== "success" && input.certifiedSql !== null) {
+  // Unsupported keeps certified SQL for migration but carries ast:null and a
+  // reason — never a weakened AST. Clarification carries null SQL + prompt.
+  // All other non-success kinds carry null SQL.
+  if (
+    (input.kind === "blocked" ||
+      input.kind === "conversational" ||
+      input.kind === "error" ||
+      input.kind === "clarification_required") &&
+    input.certifiedSql !== null
+  ) {
     throw new Error("Composer invariant violated: non-success kinds must carry null SQL.");
   }
 
@@ -91,6 +103,12 @@ export function composeResponse(input: ComposerInput): ProdEnvelope {
     aiResponse = input.blockedMessage || GENERIC_BLOCKED;
   } else if (input.kind === "error") {
     aiResponse = EXHAUSTED_MESSAGE;
+  } else if (input.kind === "unsupported") {
+    aiResponse = UNSUPPORTED_MESSAGE;
+  } else if (input.kind === "clarification_required") {
+    aiResponse =
+      input.conversationalResponse ||
+      "Your request is ambiguous. Please specify which test sets, test cases, or date range you mean, and try again.";
   } else {
     const tableWord = input.tablesUsed.length === 1 ? "table" : "tables";
     const tablesStr = input.tablesUsed.length > 0 ? input.tablesUsed.join(", ") : "the requested data";
@@ -118,13 +136,20 @@ export function composeResponse(input: ComposerInput): ProdEnvelope {
   return {
     requestEcho: { ...input.requestEcho },
     sql: input.certifiedSql,
-    dbNeutralQuery: input.kind === "success" ? (input.dbNeutralQuery ?? input.certifiedSql) : null,
+    dbNeutralQuery:
+      input.kind === "success" || input.kind === "unsupported"
+        ? (input.dbNeutralQuery ?? input.certifiedSql)
+        : null,
     ast: input.kind === "success" ? (input.ast ?? null) : null,
     dialect: input.dialect,
     aiResponse,
     filteringMetadata: input.filteringMetadata,
     warnings: [...input.warnings],
     error: input.error,
+    reasonCode:
+      input.kind === "unsupported" || input.kind === "clarification_required"
+        ? (input.reasonCode ?? (input.kind === "unsupported" ? "UNSUPPORTED_OPERATION" : "CLARIFICATION_REQUIRED"))
+        : null,
     unresolved: [...input.unresolved],
     telemetry: {
       latencyMs: input.latencyMs,

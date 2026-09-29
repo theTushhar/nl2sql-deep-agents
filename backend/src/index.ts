@@ -2,20 +2,77 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import { serve } from "@hono/node-server";
+import { NodeSDK } from "@opentelemetry/sdk-node";
+import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { app } from "./server";
-import { flushTraces } from "./orchestration/observability";
+import { flushTracing, isTracingEnabled, maskSpanData, shouldExportTraceSpan } from "./deepagents/tracing";
 import { validateEnv } from "./config/env-validation";
 
-export { answerQuestion, type AnswerRequest, type AnswerResult } from "./orchestration/query-coordinator";
+export { answerQuestion, type AnswerRequest, type AnswerResult } from "./deepagents/coordinator-deep";
 export { validateEnvelope, ProdEnvelopeSchema } from "./contracts/envelope-validator";
 export type { ProdEnvelope } from "./contracts/query-envelope";
 
 const port = Number(process.env.PORT) || 3000;
 const host = process.env.HOST || "0.0.0.0";
 
+let otelSdk: NodeSDK | null = null;
+
+/**
+ * Start the OTel SDK once so @langfuse/langchain callback spans export to
+ * Langfuse. Credentials come from the standard LANGFUSE_* env vars (.env).
+ * No-op unless tracing is enabled; never throws.
+ */
+function startTelemetry(): void {
+  if (!isTracingEnabled()) return;
+  try {
+    otelSdk = new NodeSDK({
+      spanProcessors: [
+        new LangfuseSpanProcessor({
+          publicKey: process.env.LANGFUSE_PUBLIC_KEY,
+          secretKey: process.env.LANGFUSE_SECRET_KEY,
+          baseUrl:
+            process.env.LANGFUSE_BASE_URL ||
+            process.env.LANGFUSE_HOST ||
+            "https://cloud.langfuse.com",
+          environment: process.env.NODE_ENV || "development",
+          // Trace hygiene: drop framework-plumbing spans (RunnableLambda,
+          // middleware before/after hooks, tools/model_request wrappers)
+          // and truncate duped full-prompt generation payloads. See
+          // tracing.ts; LANGFUSE_EXPORT_NOISY_SPANS=true disables filtering.
+          shouldExportSpan: shouldExportTraceSpan,
+          mask: maskSpanData,
+        }),
+      ],
+    });
+    otelSdk.start();
+    console.log("[telemetry] Langfuse OTel tracing enabled.");
+  } catch (err) {
+    console.warn("[telemetry] Failed to start OTel SDK:", err);
+    otelSdk = null;
+  }
+}
+
+/** Bounded SDK shutdown (flushes pending spans, never hangs shutdown). */
+async function stopTelemetry(timeoutMs = 3000): Promise<void> {
+  if (!otelSdk) return;
+  try {
+    await Promise.race([
+      otelSdk.shutdown(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("otel shutdown timeout")), timeoutMs)
+      ),
+    ]);
+  } catch (err) {
+    console.warn("[telemetry] OTel shutdown issue:", err);
+  } finally {
+    otelSdk = null;
+  }
+}
+
 function start(): void {
   // P0-11: fail-fast on misconfiguration in production (warn-only in dev).
   validateEnv();
+  startTelemetry();
   const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
     console.log(`[*] NlQuery_InfoQAAI running at http://${info.address}:${info.port}`);
     console.log(`[*] Health:   GET  http://localhost:${info.port}/health`);
@@ -34,8 +91,9 @@ function start(): void {
       }
     }, 8000);
     force.unref?.();
-    flushTraces(3000)
+    flushTracing(3000)
       .catch(() => undefined)
+      .then(() => stopTelemetry(3000))
       .then(() => {
         server.close(() => {
           exited = true;

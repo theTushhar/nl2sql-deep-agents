@@ -1,7 +1,7 @@
 // Unit tests for the critic's deterministic veto over LLM error claims.
 // Pure function (vetoLlmFalsePositives), no LLM calls.
 import { describe, it, expect } from "vitest";
-import { vetoLlmFalsePositives } from "./sql-critic.agent";
+import { vetoLlmFalsePositives } from "./sql-guardrails";
 import { DEFAULT_SNAPSHOT } from "../config/domain-config";
 
 const INCIDENT_SQL =

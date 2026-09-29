@@ -1,5 +1,5 @@
 import type { ProdEnvelope, LlmCallTrace } from "../contracts/query-envelope";
-import type { ComposerKind } from "../agents/response-composer";
+import type { ComposerKind } from "../orchestration/response-composer";
 
 // Backend-compatible envelope subset (mirrors backend QueryEnvelopeResponse).
 // Field names use backend snake_case so existing callers keep working.
@@ -16,6 +16,7 @@ export interface BackendCompatData {
   sql: string | null;
   db_neutral_query?: string | null;
   dialect: string;
+  reason_code?: string | null;
   meta: {
     domain: string;
     intent: string;
@@ -39,7 +40,7 @@ export interface BackendCompatData {
 export interface BackendCompatEnvelope {
   request_id: string;
   thread_id: string;
-  status: "success" | "error";
+  status: "success" | "error" | "unsupported" | "clarification_required";
   data: BackendCompatData;
 }
 
@@ -70,6 +71,10 @@ export function toBackendEnvelope(args: {
 }): { payload: BackendCompatEnvelope; statusCode: number } {
   const { envelope, kind, requestId, threadId, latencyMs, includeTraces } = args;
   // NOTE: kind drives status only (conversational is success-shaped by contract).
+  // Unsupported is explicit (never a weakened success): status "unsupported", HTTP 422.
+  // Clarification is explicit: status "clarification_required", HTTP 200, ast null.
+  const isUnsupported = kind === "unsupported";
+  const isClarification = kind === "clarification_required";
   const isError = kind === "blocked" || kind === "error";
 
   const tokens = sumTokens(envelope);
@@ -107,6 +112,7 @@ export function toBackendEnvelope(args: {
       ? { db_neutral_query: envelope.dbNeutralQuery }
       : {}),
     dialect: envelope.dialect || "mysql",
+    ...(envelope.reasonCode ? { reason_code: envelope.reasonCode } : {}),
     meta: {
       domain: envelope.meta.domain || "default",
       intent: envelope.meta.intent || "query_data",
@@ -133,6 +139,18 @@ export function toBackendEnvelope(args: {
     ...(hasCustomEcho ? { echo: customEcho } : {}),
   };
 
+  if (isUnsupported) {
+    return {
+      payload: { request_id: requestId, thread_id: threadId, status: "unsupported", data },
+      statusCode: 422,
+    };
+  }
+  if (isClarification) {
+    return {
+      payload: { request_id: requestId, thread_id: threadId, status: "clarification_required", data },
+      statusCode: 200,
+    };
+  }
   return {
     payload: { request_id: requestId, thread_id: threadId, status: isError ? "error" : "success", data },
     statusCode: isError ? 400 : 200,
