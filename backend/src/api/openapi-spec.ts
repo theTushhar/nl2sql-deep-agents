@@ -35,7 +35,7 @@ export const openApiSpec = {
       "query text 500 chars; joins 4; predicate nodes 40; Boolean depth 6; set values 100;",
       "group fields 8; order items 4; limit 1–1000; response body 256 KB.",
       "Single canonical snake_case field names, no aliases.",
-      "Any extra body fields are echoed back verbatim in `data.echo`.",
+      "Extra body fields are accepted and ignored (never reflected back).",
       "Omit `thread_id` / `request_id` to auto-generate UUIDs.",
     ].join("\n"),
     version: "2.0.0",
@@ -206,7 +206,7 @@ export const openApiSpec = {
           },
           "400": {
             description:
-              "Invalid payload, or blocked/error kind ({request_id, thread_id, status: 'error', data}). Conversational turns return 200 with sql: null.",
+              "Invalid payload, or blocked kind ({request_id, thread_id, status: 'error', data}). Conversational turns return 200 with sql: null.",
           },
           "422": {
             description: "Unsupported kind ({request_id, thread_id, status: 'unsupported', data with ast: null}).",
@@ -228,7 +228,8 @@ export const openApiSpec = {
           },
           "404": { description: "Unknown route: {status: 'error', error: 'Not found'}" },
           "500": {
-            description: "Internal error: {status: 'error', error: 'Internal server error'}.",
+            description:
+              "Error kind (agent/validation failure on a valid request) or internal error: {status: 'error', ...}.",
           },
         },
       },
@@ -346,7 +347,7 @@ export const openApiSpec = {
         required: ["query", "domain", "ast_version", "required_projection", "time_context"],
         additionalProperties: true,
         description:
-          "App Engine → Query AI request. `domain`, `required_projection`, and `time_context` are derived by App Engine from trusted configuration and server time; the browser must not supply them. Extra scalar fields are echoed back verbatim in `data.echo`.",
+          "App Engine → Query AI request. `domain`, `required_projection`, and `time_context` are derived by App Engine from trusted configuration and server time; the browser must not supply them. Extra fields are accepted and ignored.",
         properties: {
           query: {
             type: "string",
@@ -384,7 +385,7 @@ export const openApiSpec = {
             type: "boolean",
             default: true,
             description:
-              "AST tool gate (v2 LLM tool). Default true: `data.ast` carries the AST v2 JSON. Pass false to skip the ast-generator call and receive `ast: null`.",
+              "AST gate. Default true: `data.ast` carries the AST v2 JSON. Pass false to skip AST generation and receive `ast: null`.",
           },
         },
       },
@@ -827,10 +828,6 @@ export const openApiSpec = {
                   llmCallsCount: { type: "number", example: 6 },
                   llmCost: { type: "number" },
                 },
-              },
-              echo: {
-                type: "object",
-                description: "Caller fields echoed verbatim (plus any extra scalars).",
               },
             },
           },

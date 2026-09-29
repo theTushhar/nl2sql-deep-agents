@@ -1,5 +1,5 @@
 import type { ProdEnvelope, LlmCallTrace } from "../contracts/query-envelope";
-import type { ComposerKind } from "../orchestration/response-composer";
+import type { ComposerKind } from "../domain/response-composer";
 
 // Backend-compatible envelope subset (mirrors backend QueryEnvelopeResponse).
 // Field names use backend snake_case so existing callers keep working.
@@ -34,7 +34,6 @@ export interface BackendCompatData {
     llmCost: number;
     llmTraces?: BackendCompatTrace[];
   };
-  echo?: Record<string, unknown>;
 }
 
 export interface BackendCompatEnvelope {
@@ -73,9 +72,12 @@ export function toBackendEnvelope(args: {
   // NOTE: kind drives status only (conversational is success-shaped by contract).
   // Unsupported is explicit (never a weakened success): status "unsupported", HTTP 422.
   // Clarification is explicit: status "clarification_required", HTTP 200, ast null.
+  // Blocked (malicious/out-of-scope input) is client-side: HTTP 400.
+  // Error (agent/validation failure on a valid request) is server-side: HTTP 500.
   const isUnsupported = kind === "unsupported";
   const isClarification = kind === "clarification_required";
-  const isError = kind === "blocked" || kind === "error";
+  const isBlocked = kind === "blocked";
+  const isError = kind === "error";
 
   const tokens = sumTokens(envelope);
   const cost = sumCost(envelope);
@@ -94,15 +96,6 @@ export function toBackendEnvelope(args: {
         latencyMs: t.latencyMs,
       }))
     : undefined;
-
-  // Filter out redundant echo mirrors of top-level fields (requestId, threadId, domain, dialect)
-  const customEcho: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(envelope.requestEcho || {})) {
-    if (!["requestid", "threadid", "domain", "dialect"].includes(k.toLowerCase())) {
-      customEcho[k] = v;
-    }
-  }
-  const hasCustomEcho = Object.keys(customEcho).length > 0;
 
   const data: BackendCompatData = {
     message: envelope.aiResponse,
@@ -136,7 +129,6 @@ export function toBackendEnvelope(args: {
       llmCost: cost,
       ...(llmTraces ? { llmTraces } : {}),
     },
-    ...(hasCustomEcho ? { echo: customEcho } : {}),
   };
 
   if (isUnsupported) {
@@ -152,7 +144,7 @@ export function toBackendEnvelope(args: {
     };
   }
   return {
-    payload: { request_id: requestId, thread_id: threadId, status: isError ? "error" : "success", data },
-    statusCode: isError ? 400 : 200,
+    payload: { request_id: requestId, thread_id: threadId, status: isError || isBlocked ? "error" : "success", data },
+    statusCode: isBlocked ? 400 : isError ? 500 : 200,
   };
 }

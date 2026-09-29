@@ -5,10 +5,10 @@ import { serve } from "@hono/node-server";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { app } from "./server";
-import { flushTracing, isTracingEnabled, maskSpanData, shouldExportTraceSpan } from "./deepagents/tracing";
-import { validateEnv } from "./config/env-validation";
+import { flushTracing, isTracingEnabled, maskSpanData, shouldExportTraceSpan } from "./agent/tracing";
+import { validateEnv } from "./domain/env-validation";
 
-export { answerQuestion, type AnswerRequest, type AnswerResult } from "./deepagents/coordinator-deep";
+export { answerQuestion, type AnswerRequest, type AnswerResult } from "./agent/coordinator";
 export { validateEnvelope, ProdEnvelopeSchema } from "./contracts/envelope-validator";
 export type { ProdEnvelope } from "./contracts/query-envelope";
 

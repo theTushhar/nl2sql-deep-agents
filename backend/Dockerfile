@@ -31,10 +31,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --workspaces=false && npm cache clean --force
 
 # Copy compiled application plus runtime prompt/skill packs.
-# NOTE: src/prompting/template-loader.ts and src/skills/skill-loader.ts resolve
+# NOTE: src/agent/prompts.ts and the deep-agents runtime resolve
 # <root>/prompts and <root>/skills relative to the compiled files,
-# so both directories must ship alongside dist/ (config/ is legacy
-# and no longer used).
+# so both directories must ship alongside dist/.
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prompts ./prompts
 COPY --from=builder /app/skills ./skills

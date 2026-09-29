@@ -1,7 +1,10 @@
-# Skills (Phase 1 placeholders, no versioning)
+# Skills (Deep Agents progressive disclosure packs)
 
-- `general/` — general query-writing skill, layered on every generation.
-- `domains/` — one pack per major domain, layered by resolved domain.
-- `critic/` — attaches from first retry onward (writer+critic 2–3 rounds).
+Flat structure adhering to official Deep Agents standard (`skills/<skill-name>/SKILL.md`).
+One skill per domain; the generic writer prompt carries mechanics, skills carry
+projection invariants:
 
-Skills used by name only. Fine-tune as needed; promotion needs golden pass + your approval.
+- `default-reporting/` — Flexible multi-column analytical reporting for the `default` domain (counts, groupings, orderings, ad-hoc reports).
+- `all-test-sets/` — Domain-specific UI grid filter subquery generation (`SELECT DISTINCT ts.TEST_SET_UUID`).
+
+Skills load metadata at startup and full instructions on demand via `read_file`.

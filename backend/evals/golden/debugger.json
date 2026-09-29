@@ -1,8 +1,0 @@
-[
-  { "id": "greet-01", "question": "hi", "expectedConversational": true, "expectedIntent": "greeting" },
-  { "id": "greet-02", "question": "Good morning", "expectedConversational": true, "expectedIntent": "greeting" },
-  { "id": "thanks-01", "question": "thanks", "expectedConversational": true, "expectedIntent": "greeting" },
-  { "id": "data-01", "question": "How many test cases are in each test set?", "expectedConversational": false, "expectedDomain": "all_test_sets" },
-  { "id": "data-02", "question": "Show failed test runs from last week", "expectedConversational": false, "expectedDomain": "all_test_sets" },
-  { "id": "oos-01", "question": "What is the weather today?", "expectedConversational": true, "expectedIntent": "out_of_scope" }
-]

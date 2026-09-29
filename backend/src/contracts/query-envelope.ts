@@ -1,13 +1,8 @@
 // Frozen prod envelope shape — types only, no validation logic yet.
-// - Echo all request metadata back unchanged.
 // - sql: domain-neutral string honoring input dialect; null/blank for conversational + blocked.
 // - aiResponse: always-present human-readable string.
 // - filteringMetadata: AST-style intent (measures, filters, ordering, tables, scope).
 // - warnings / errors / unresolved, telemetry (incl. per-trigger tracking), meta (no skill versions).
-
-export interface RequestEcho {
-  [key: string]: unknown;
-}
 
 export interface FilteringMetadata {
   measures?: string[];
@@ -41,13 +36,12 @@ export interface Telemetry {
 }
 
 export interface ProdEnvelope {
-  requestEcho: RequestEcho;
   sql: string | null;
   /** Canonical DB-neutral SQL (portable LIKE form). */
   dbNeutralQuery: string | null;
   /**
    * AST v2 JSON (version "2.0") derived from the certified SQL by the
-   * ast-generator tool. Null on unsupported / clarification / include_ast=false.
+   * writer subagent. Null on unsupported / clarification / include_ast=false.
    * Never a weakened AST.
    * Shape: `{ version, root, projection, joins?, where?, groupBy?, having?,
    * orderBy?, limit? }` — see `src/contracts/query-ast-v2.ts`.
@@ -70,30 +64,5 @@ export interface ProdEnvelope {
     tablesUsed?: string[];
     modelsUsed?: Record<string, string>;
     configSnapshotRef?: string;
-  };
-}
-
-/** One tool/trigger invocation record (feeds telemetry.toolTriggers). */
-export interface TriggerRecord {
-  name: string;
-  outcome: string;
-}
-
-/** Per-request trigger/trace recorder (org audit requirement). */
-export interface Tracker {
-  record(name: string, outcome: string): void;
-  list(): TriggerRecord[];
-}
-
-/** In-memory tracker factory. */
-export function createTracker(): Tracker {
-  const records: TriggerRecord[] = [];
-  return {
-    record(name: string, outcome: string): void {
-      records.push({ name, outcome });
-    },
-    list(): TriggerRecord[] {
-      return [...records];
-    },
   };
 }

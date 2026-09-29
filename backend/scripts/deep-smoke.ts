@@ -1,20 +1,14 @@
 // deep-smoke — no LLM cost. Verifies the Deep Agents wiring:
 // stage prompts load, tools build, subagents build, agent constructs.
-import { loadStagePrompt } from "../src/deepagents/prompts";
-import { snapshotTools } from "../src/deepagents/tools";
-import { buildSubagents } from "../src/deepagents/subagents";
-import { getDeepAgent, resetDeepAgent } from "../src/deepagents/agent";
+import { loadStagePrompt } from "../src/agent/prompts";
+import { snapshotTools } from "../src/agent/tools";
+import { buildSubagents } from "../src/agent/subagents";
+import { getDeepAgent, resetDeepAgent } from "../src/agent/agent";
 
 const stages = [
-  "input-guard",
-  "query-normalizer",
-  "domain-router",
-  "domain-rephraser",
-  "schema-explorer",
-  "business-rules",
-  "sql-writer",
-  "sql-critic",
-  "ast-generator",
+  "coordinator",
+  "planner",
+  "writer",
 ];
 for (const stage of stages) {
   const body = loadStagePrompt(stage);
@@ -26,7 +20,7 @@ console.log(`[deep-smoke] tools: ${snapshotTools.map((t) => (t as { name: string
 
 const subs = buildSubagents();
 console.log(`[deep-smoke] subagents: ${subs.map((s) => s.name).join(", ")}`);
-if (subs.length !== 9) throw new Error(`Expected 9 subagents, got ${subs.length}`);
+if (subs.length !== 2) throw new Error(`Expected 2 subagents, got ${subs.length}`);
 for (const s of subs) {
   if (!s.description || !s.systemPrompt || !s.responseFormat) {
     throw new Error(`Subagent incomplete: ${s.name}`);

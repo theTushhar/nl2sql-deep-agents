@@ -1,7 +1,0 @@
-[
-  { "id": "exp-01", "question": "How many test cases are in each test set?", "domain": "default", "expectedTables": ["TEST_SET", "TEST_CASE"] },
-  { "id": "exp-02", "question": "Give ordered execution steps for test case 8735", "domain": "default", "expectedTables": ["TEST_CASE", "TEST_CASE_STEP"] },
-  { "id": "exp-03", "question": "Show test step details containing tushar", "domain": "default", "expectedTables": ["TEST_CASE_STEP"], "expectedScopeNonEmpty": true },
-  { "id": "exp-04", "question": "Show my personal test sets", "domain": "all_test_sets", "expectedTables": ["TEST_SET"] },
-  { "id": "exp-05", "question": "List test sets containing globalsqa", "domain": "all_test_sets", "expectedTables": ["TEST_SET"], "expectedScopeNonEmpty": true }
-]

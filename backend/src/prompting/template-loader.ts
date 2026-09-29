@@ -40,7 +40,7 @@ function promptsDir(): string {
 }
 
 function resolvePromptFile(name: string): string {
-  // Canonical only: prompts/<stage>.prompt.md (matches src/agents/<stage>.agent.ts).
+  // Canonical only: prompts/<stage>.prompt.md (matches src/agent/agent.ts and subagents.ts).
   return path.join(promptsDir(), `${name}.prompt.md`);
 }
 
@@ -92,30 +92,6 @@ export function loadPromptTemplate(name: string): PromptTemplate {
   return parsed;
 }
 
-export function getPrompt(
-  name: string,
-  variables: Record<string, unknown> = {}
-): string {
-  const template = loadPromptTemplate(name);
-  let rendered = template.body;
-
-  for (const [key, val] of Object.entries(variables)) {
-    let replacement = "";
-    if (val === null || val === undefined) {
-      replacement = "";
-    } else if (Array.isArray(val)) {
-      replacement = val.join(", ");
-    } else {
-      replacement = String(val);
-    }
-    const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, "g");
-    rendered = rendered.replace(regex, replacement);
-  }
-
-  return rendered;
-}
-
-export const renderPrompt = getPrompt;
 
 /** Read tunable config for a prompt (model, temperature, json mode). Never throws on missing keys — falls back to safe defaults. */
 export function getPromptConfig(name: string): PromptConfig {

@@ -5,10 +5,10 @@ import { validator } from "hono/validator";
 import { randomUUID } from "crypto";
 import { swaggerUI } from "@hono/swagger-ui";
 import { openApiSpec } from "./api/openapi-spec";
-import { answerQuestion } from "./deepagents/coordinator-deep";
-import { flushTracing as flushTraces } from "./deepagents/tracing";
-import { DEFAULT_SNAPSHOT } from "./config/domain-config";
-import { QueryRequestSchema, getEffectiveQuery, getEffectiveDialect, getEffectiveDomain, getEffectiveIncludeTraces, getEffectiveIncludeAst, getEffectiveRequiredProjection, getEffectiveTimeContext, RESPONSE_MAX_BYTES } from "./api/query-request.schema";
+import { answerQuestion } from "./agent/coordinator";
+import { flushTracing as flushTraces } from "./agent/tracing";
+import { DEFAULT_SNAPSHOT } from "./domain/config";
+import { QueryRequestSchema, getEffectiveQuery, getEffectiveDialect, getEffectiveDomain, getEffectiveIncludeTraces, getEffectiveIncludeAst, getEffectiveRequiredProjection, getEffectiveTimeContext, RESPONSE_MAX_BYTES } from "./api/request-schema";
 import { toBackendEnvelope } from "./api/response-mapper";
 
 export const app = new Hono();
@@ -87,23 +87,8 @@ app.post(
 
       const domain = getEffectiveDomain(body);
       const dialect = getEffectiveDialect(body);
-
-      // Echo caller fields verbatim (e.g. run_uuid, tenant_id, context_filters)
-      // capped to ID_MAX-sized scalars to avoid unbounded reflection.
-      const passthroughEcho: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(body as Record<string, unknown>)) {
-        if (["nl_query", "query", "question"].includes(k)) continue;
-        if (typeof v === "string" && v.length > 256) continue;
-        if (typeof v === "string" || typeof v === "number" || typeof v === "boolean" || v === null) {
-          passthroughEcho[k] = v;
-        } else if (Array.isArray(v) && JSON.stringify(v).length <= 4096) {
-          passthroughEcho[k] = v;
-        } else if (typeof v === "object" && v !== null && JSON.stringify(v).length <= 4096) {
-          passthroughEcho[k] = v;
-        }
-      }
-
       const includeAst = getEffectiveIncludeAst(body);
+      const userId = typeof body.user_id === "string" && body.user_id ? body.user_id : undefined;
 
       // Outer request guard: answerQuestion is internally bounded, but this
       // guarantees the socket always gets a response (504, never a hang)
@@ -111,13 +96,9 @@ app.post(
       const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS) || 150000;
       const { envelope, kind } = await Promise.race([
         answerQuestion({
-          echo: {
-            ...passthroughEcho,
-            requestId,
-            threadId,
-            domain,
-            dialect,
-          },
+          requestId,
+          threadId,
+          userId,
           question,
           dialect,
           domain,
@@ -148,7 +129,7 @@ app.post(
       if (JSON.stringify(payload).length > RESPONSE_MAX_BYTES) {
         return c.json({ status: "error", error: "Response exceeds 256KB limit" }, 500);
       }
-      return c.json(payload, statusCode as 200 | 400 | 422);
+      return c.json(payload, statusCode as 200 | 400 | 422 | 500);
     } catch (err) {
       // P0-9: generic 500 — never echo err.message (upstream LLM text) to client.
       // Timeout rejections are our own static strings (never LLM text), so a
@@ -178,9 +159,9 @@ app.get("/api/v1/schema", (c) => {
 
 app.get("/api/v1/skills", (c) => {
   // Skill pack names served natively by the deep agent (SkillsMiddleware);
-  // bodies stay server-side under skills/<group>/<skill>/SKILL.md.
+  // bodies stay server-side under skills/<skill>/SKILL.md.
   return c.json({
-    skills: [{ name: "query-writing" }, { name: "all-test-sets" }, { name: "query-critic" }],
+    skills: [{ name: "default-reporting" }, { name: "all-test-sets" }],
   });
 });
 
