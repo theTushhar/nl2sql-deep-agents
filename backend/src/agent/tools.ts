@@ -136,9 +136,24 @@ export const listDomainsTool = tool(
 export const getContextTool = tool(
   ({ domain, tables }: { domain: string; tables: string[] }): string => {
     const wanted = (domain || "").toLowerCase();
+    // Compact schemas: name/type/searchable/allowed_values/description only —
+    // full join arrays live in buildSchemaBlock consumers; the writer joins
+    // via the schema block paths, so per-table joins are omitted here to
+    // avoid shipping the same column list twice (schemas + schemaBlock).
     const schemas = tables.map((table) => {
       const entry = snapshot.tables.find((t) => t.table_name === table);
-      return entry ?? { error: `Unknown table: ${table}` };
+      if (!entry) return { error: `Unknown table: ${table}` };
+      return {
+        table_name: entry.table_name,
+        alias: entry.alias,
+        primaryKey: entry.primaryKey,
+        columns: entry.columns.map((c) => ({
+          name: c.name,
+          type: c.type,
+          searchable: c.searchable,
+          ...(c.allowed_values ? { allowed_values: c.allowed_values } : {}),
+        })),
+      };
     });
     const searchable: string[] = [];
     for (const table of tables) {
@@ -163,7 +178,6 @@ export const getContextTool = tool(
       schemas,
       searchable,
       rules,
-      schemaBlock: buildSchemaBlock(snapshot, tables),
     });
   },
   {

@@ -17,7 +17,7 @@ import type { ProdEnvelope } from "../contracts/query-envelope";
 import { composeResponse, type ComposerKind, type StageRecord } from "../domain/response-composer";
 import { validateEnvelope } from "../contracts/envelope-validator";
 import { runStaticChecks } from "../domain/guardrails";
-import { toDbNeutral, renderDialect } from "../domain/sql-ast";
+import { toDbNeutral, renderDialect, sqlToAstV2 } from "../domain/sql-ast";
 import { getDeepAgent } from "./agent";
 import { FinalAnswerSchema, type FinalAnswer } from "./schemas";
 import { readModelName } from "./model";
@@ -83,6 +83,27 @@ function effectiveTables(snapshot: ReturnType<typeof loadSnapshot>, domain: stri
   const allowed = entry?.allowedTables ?? [];
   if (allowed.length === 0) return tables;
   return [...allowed];
+}
+
+/**
+ * P0-3: conditional time context. Returns true when the NL question carries
+ * a temporal expression (relative-date keyword, 4-digit year, or ISO date),
+ * in which case invokeInput injects the resolved time context; otherwise the
+ * coordinator sends `time context: none` so the planner skips temporal
+ * filters without an LLM round-trip. Exported for offline verification.
+ */
+export function hasTemporalExpression(question: string): boolean {
+  if (!question) return false;
+  if (
+    /\b(today|yesterday|tomorrow|last\s+\w+|past\s+\d+|this\s+(week|month|quarter|year)|recent|ago|since|between|after|before|now|current|latest)\b/i.test(
+      question
+    )
+  ) {
+    return true;
+  }
+  if (/\b(19|20)\d{2}\b/.test(question)) return true;
+  if (/\d{4}-\d{2}-\d{2}/.test(question)) return true;
+  return false;
 }
 
 /**
@@ -325,9 +346,17 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnswerResu
               `NL question: ${request.question}`,
               `dialect: ${dialect}`,
               `domain hint: ${(request.domain || "default").toLowerCase()}`,
+              `candidateTables: ${(() => {
+                const domainLower = (request.domain || "default").toLowerCase();
+                const resolved = effectiveTables(snapshot, domainLower, []);
+                const tables = resolved.length > 0 ? resolved : snapshot.tables.map((t) => t.table_name);
+                return tables.join(", ") || "(none)";
+              })()}`,
               `snapshot: ${snapshot.ref} (config ID, not a file path — never read it as a file)`,
               `include_ast: ${includeAst}`,
-              `time context: ${buildTimeContextText(request.timeContext)}`,
+              hasTemporalExpression(request.question)
+                ? `time context: ${buildTimeContextText(request.timeContext)}`
+                : `time context: none (no temporal filter)`,
               `Run the coordinator workflow and return FinalAnswer JSON only.`,
             ].join("\n"),
           },
@@ -433,6 +462,19 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnswerResu
       );
     }
     final = parsed.data;
+    // Domain hardening: the coordinator prompt requires a real snapshot
+    // domain, but a vague task description can make the planner echo back
+    // the subagent name (observed: domain="planner"). Fall back to the
+    // caller's pinned hint instead of leaking a non-domain through to
+    // meta.domain and the static gate.
+    {
+      const known = new Set(snapshot.domains.map((d) => d.canonical_name.toLowerCase()));
+      if (!known.has((final.domain || "").toLowerCase())) {
+        const fallback = (request.domain || "default").toLowerCase();
+        console.warn(`[deep-agent] unknown FinalAnswer domain '${final.domain}', falling back to '${fallback}'`);
+        final = { ...final, domain: known.has(fallback) ? fallback : "default" };
+      }
+    }
     // Total agent latency is measured in code. Per-call tokens come from the
     // local recorder (Langfuse generations have no local aggregation API),
     // so the stages map — and therefore telemetry + llmCallsCount — is real.
@@ -616,7 +658,10 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnswerResu
     return finish("error", envelope);
   }
 
-  // 5. Success: neutral + dialect render, then strict AST validation in code.
+  // 5. Success: neutral + dialect render, then deterministic AST in code.
+  // The writer is SQL-only; sqlToAstV2 builds the AST v2 JSON from the
+  // certified SQL without LLM tokens. Legacy LLM AST (final.ast) is only a
+  // fallback when the deterministic builder reports unsupported.
   const neutral = toDbNeutral(candidateSql);
   const rendered = renderDialect(neutral, request.dialect);
   let ast: unknown | null = null;
@@ -628,29 +673,36 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnswerResu
 
   if (!includeAst) {
     // include_ast=false: ast:null is contract-valid via the explicit opt-out.
-  } else if (rawAst && typeof rawAst === "object" && !Array.isArray(rawAst)) {
-    const raw = rawAst as Record<string, unknown>;
-    if (raw.unsupported === true) {
-      const code = typeof raw.reason_code === "string" ? raw.reason_code : "UNSUPPORTED_OPERATION";
-      astUnresolved.push(`${AST_FAILED_MARKER} (${code})`);
-    } else {
-      const astGate = await measureStep(
-        trace,
-        "gate:ast-validation",
-        { tables: final.tablesUsed },
-        () => validateAst(raw, final.tablesUsed, snapshot, extractSqlTables(neutral))
-      );
-      const checked = astGate.result;
-      stages["gate:ast-validation"] = stageRecord(astGate.latencyMs);
-      if (checked.ast) {
-        ast = checked.ast;
-      } else {
-        const detail = checked.errors.length > 0 ? `: ${checked.errors.slice(0, 3).join("; ")}` : "";
-        astUnresolved.push(`${AST_FAILED_MARKER} (AST_VALIDATION_FAILED)${detail}`);
-      }
-    }
   } else {
-    astUnresolved.push(`${AST_FAILED_MARKER} (AST_VALIDATION_FAILED: no AST JSON returned)`);
+    const built = sqlToAstV2(neutral);
+    const candidate: unknown = built.ast ?? (rawAst && typeof rawAst === "object" && !Array.isArray(rawAst) ? rawAst : null);
+    if (built.ast === null && candidate === null) {
+      const code = built.unsupported ?? "UNSUPPORTED_OPERATION";
+      astUnresolved.push(`${AST_FAILED_MARKER} (${code})`);
+    } else if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+      const raw = candidate as Record<string, unknown>;
+      if ((raw as Record<string, unknown>).unsupported === true) {
+        const code = typeof raw.reason_code === "string" ? raw.reason_code : "UNSUPPORTED_OPERATION";
+        astUnresolved.push(`${AST_FAILED_MARKER} (${code})`);
+      } else {
+        const astGate = await measureStep(
+          trace,
+          "gate:ast-validation",
+          { tables: final.tablesUsed },
+          () => validateAst(raw, final.tablesUsed, snapshot, extractSqlTables(neutral))
+        );
+        const checked = astGate.result;
+        stages["gate:ast-validation"] = stageRecord(astGate.latencyMs);
+        if (checked.ast) {
+          ast = checked.ast;
+        } else {
+          const detail = checked.errors.length > 0 ? `: ${checked.errors.slice(0, 3).join("; ")}` : "";
+          astUnresolved.push(`${AST_FAILED_MARKER} (AST_VALIDATION_FAILED)${detail}`);
+        }
+      }
+    } else {
+      astUnresolved.push(`${AST_FAILED_MARKER} (AST_VALIDATION_FAILED: no AST built from SQL)`);
+    }
   }
 
   const envelope = composeResponse({

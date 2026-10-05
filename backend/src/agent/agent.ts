@@ -24,7 +24,10 @@ export async function getDeepAgent(): Promise<NonNullable<typeof cached>> {
     // otherwise: the coordinator never reads skills directly.
     tools: [finalAnswerTool],
     skills: [],
-    memory: ["./AGENTS.md"],
+    // No memory: coordinator.prompt.md already carries the dispatcher
+    // workflow. memory: ["./AGENTS.md"] injected the 212-line contributor
+    // file every turn (~3-4K input tokens) for zero dispatcher value.
+    memory: [],
     backend,
     // read_file only (skill L2 reads). Same-name entry replaces the default
     // FilesystemMiddleware; also avoids the OpenAI strict-schema `glob` issue.

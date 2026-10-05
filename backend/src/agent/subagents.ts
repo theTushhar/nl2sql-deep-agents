@@ -32,14 +32,24 @@ export function buildSubagents(): SubAgent[] {
       description:
         "Normalize the user question then plan tables, text-search scope, and business rules. Call first on every request.",
       systemPrompt: loadStagePrompt("planner"),
-      tools: snapshotTools,
+      // P0-2: domain/tables are pre-resolved deterministically in coordinator
+      // invokeInput (domain hint + effectiveTables gate) — the planner must use
+      // the pinned hint verbatim, so list_domains/find_tables/get_context are
+      // withheld here to save 1-2 LLM tool round-trips per request.
+      tools: toolNames([
+        "get_table_schema",
+        "list_searchable_columns",
+        "list_business_rules",
+        "get_allowed_values",
+        "build_schema_block",
+      ]),
       middleware: [readOnlyFs()],
       responseFormat: PlannerResponse,
     },
     {
       name: "writer",
       description:
-        "Write ONE read-only SELECT from the planner context, then mirror it as AST v2 JSON in the same response. Call after planner.",
+        "Write ONE read-only SELECT from the planner context as SQL-only JSON (no AST — code builds it). Call after planner.",
       systemPrompt: loadStagePrompt("writer"),
       // No list_domains: skill selection is automatic via SkillsMiddleware;
       // one get_context call replaces the old tool fan-out.

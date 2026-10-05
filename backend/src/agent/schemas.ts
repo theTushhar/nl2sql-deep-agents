@@ -44,21 +44,22 @@ export const PlannerSchema = z.object({
   operator: z.enum(["LIKE", "REGEXP", "NONE"]),
   appliedRuleIds: z.array(z.string()),
   complexity: z.enum(["simple", "medium", "complex"]),
-  reasoning: z.string(),
+  reasoning: z.string().optional().default(""),
 });
 
 /**
- * Writer boundary: SQL + AST v2 JSON in one response. The AST mirrors the
- * SQL (written by the same agent), so drift between separate writer and
- * translator stages is impossible by construction. Loose object for the
- * AST half: strict QueryAstV2Schema validation stays in the coordinator.
+ * Writer boundary: SQL-only. The writer returns ONE SELECT + tablesUsed;
+ * the coordinator builds the AST v2 deterministically in code via
+ * sqlToAstV2 (no LLM hand-compiled JSON, no SQL/AST drift, no ~467-token
+ * AST payload in coordinator history). `ast`/`astUnsupported` remain as
+ * deprecated optionals so older prompts still validate; code ignores them.
  */
 export const WriterSchema = z.object({
   query: z.string().min(1),
-  ast: z.looseObject({}).catchall(z.unknown()).nullable(),
-  astUnsupported: z.boolean().optional().default(false),
+  ast: z.looseObject({}).catchall(z.unknown()).nullable().optional().default(null),
+  astUnsupported: z.boolean().optional().default(true),
   tablesUsed: z.array(z.string()),
-  reasoning: z.string(),
+  reasoning: z.string().optional().default(""),
 });
 
 /** Main-agent final answer: terminal routing + certified-SQL handoff fields. */
