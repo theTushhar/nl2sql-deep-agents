@@ -7,18 +7,18 @@
 // Assignability (highest precedence first):
 //   LLM_CALL_LIMIT_<AGENT>  e.g. LLM_CALL_LIMIT_SQL_WRITER=5
 //   AGENT_LLM_CALL_LIMIT    global default for all agents
-//   code fallback           3 for subagents, 12 for the coordinator
+//   code fallback           3 for subagents, 8 for the coordinator
 //
-// The coordinator needs ~6 model calls per request (one per delegation
-// step — planner, writer, final answer, plus headroom), so capping it at 3
-// would break every request. 12 bounds retry storms while leaving headroom.
+// The coordinator needs ~4-5 model calls per request (planner task +
+// writer task + FinalAnswer + headroom), so capping it at 3
+// would break every request. 8 bounds retry storms while leaving headroom.
 // Subagents do their whole job in 1–2 calls; 3 leaves one retry.
 
 import { modelCallLimitMiddleware } from "langchain";
 import type { AgentMiddleware } from "langchain";
 
 export const DEFAULT_SUBAGENT_LLM_CALL_LIMIT = 3;
-export const DEFAULT_COORDINATOR_LLM_CALL_LIMIT = 12;
+export const DEFAULT_COORDINATOR_LLM_CALL_LIMIT = 8;
 
 /** Resolve the runLimit for one agent (kebab-case name, e.g. "writer"). */
 export function llmCallLimitFor(agentName: string, fallback: number): number {
