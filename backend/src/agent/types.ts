@@ -28,6 +28,8 @@ export interface AnswerRequest {
    * return `ast: null`. Tune via prompts/writer.prompt.md.
    */
   includeAst?: boolean;
+  /** Generate SQL output. Default true; false skips the SQL writer branch. */
+  includeSql?: boolean;
   /** AST contract version requested (default "2.0"). */
   astVersion?: string;
   /**

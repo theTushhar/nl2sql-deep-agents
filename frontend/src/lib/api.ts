@@ -86,6 +86,10 @@ export interface QueryPayload {
   domain?: string;
   /** Target SQL rendering dialect ('mysql' | 'mssql'). Default: 'mysql'. */
   dialect?: string;
+  /** Generate AST v2 output. Default: true. */
+  include_ast?: boolean;
+  /** Generate SQL output. Default: true. */
+  include_sql?: boolean;
   /** When true, includes deep per-stage LLM traces in telemetry. Default: false. */
   include_traces?: boolean;
   /** Optional caller request tracking id. Auto-generated if omitted. */

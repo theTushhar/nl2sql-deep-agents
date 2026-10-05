@@ -16,7 +16,8 @@ export const QueryRequestSchema = z
     thread_id: z.string().max(ID_MAX).optional(),
     request_id: z.string().max(ID_MAX).optional(),
     include_traces: z.boolean().optional(),
-    include_ast: z.boolean().optional(),
+    include_ast: z.boolean().optional().default(true),
+    include_sql: z.boolean().optional().default(true),
     user_id: z.string().max(ID_MAX).optional(),
     context_filters: z.record(z.string(), z.unknown()).optional(),
     execute: z.boolean().optional(),
@@ -37,7 +38,7 @@ export const QueryRequestSchema = z
 export type QueryRequest = z.infer<typeof QueryRequestSchema>;
 
 const isRealQuery = (v: unknown): v is string =>
-  typeof v === "string" && v !== "string" && v.trim().length > 0;
+  typeof v === "string" && v.trim().length > 0;
 
 export function getEffectiveQuery(req: QueryRequest): string | null {
   if (isRealQuery(req.query)) return req.query.trim();
@@ -64,8 +65,12 @@ export function getEffectiveIncludeTraces(req: QueryRequest): boolean {
  * `ast: null`. Tune via prompts/writer.prompt.md.
  */
 export function getEffectiveIncludeAst(req: QueryRequest): boolean {
-  if (req.include_ast === false) return false;
-  return true;
+  return req.include_ast !== false;
+}
+
+/** SQL output/cost gate. Default true preserves the existing response contract. */
+export function getEffectiveIncludeSql(req: QueryRequest): boolean {
+  return req.include_sql !== false;
 }
 
 export function getEffectiveRequiredProjection(req: QueryRequest): { field?: string; output?: string; distinct?: boolean } | undefined {

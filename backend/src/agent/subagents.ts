@@ -15,6 +15,7 @@ import { createLlmCallLimit, DEFAULT_SUBAGENT_LLM_CALL_LIMIT } from "./limits";
 import {
   PlannerResponse,
   WriterResponse,
+  AstWriterResponse,
 } from "./schemas";
 
 function toolNames(names: string[]) {
@@ -47,6 +48,16 @@ export function buildSubagents(): SubAgent[] {
       responseFormat: PlannerResponse,
     },
     {
+      name: "ast-writer",
+      description:
+        "Generate a database-neutral Query AI AST v2 independently from the planner contract. Never generate or parse SQL.",
+      systemPrompt: loadStagePrompt("ast-writer"),
+      tools: toolNames(["get_context", "get_table_schema", "list_business_rules", "build_schema_block"]),
+      middleware: [readOnlyFs()],
+      responseFormat: AstWriterResponse,
+      skills: ["/skills/"],
+    },
+    {
       name: "writer",
       description:
         "Write ONE read-only SELECT from the planner context as SQL-only JSON (no AST — code builds it). Call after planner.",
@@ -69,8 +80,9 @@ export function buildSubagents(): SubAgent[] {
   ];
   // Per-stage LLM budgets (override via LLM_CALL_LIMIT_<STAGE>).
   const budgets: Record<string, number> = {
-    planner: 10,
-    writer: 6,
+    planner: 4,
+    writer: 3,
+    "ast-writer": 3,
   };
   return subs.map((s) => ({
     ...s,
