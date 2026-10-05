@@ -62,6 +62,16 @@ export const WriterSchema = z.object({
   reasoning: z.string().optional().default(""),
 });
 
+/** AST-native writer boundary. SQL is deliberately not accepted here. */
+export const AstWriterSchema = z.object({
+  kind: z.enum(["success", "unsupported", "clarification_required"]),
+  ast: z.record(z.string(), z.unknown()).nullable(),
+  message: z.string().nullable(),
+  reasonCode: z.string().nullable(),
+  tablesUsed: z.array(z.string()),
+  warnings: z.array(z.string()),
+});
+
 /** Main-agent final answer: terminal routing + certified-SQL handoff fields. */
 export const FinalAnswerSchema = z.object({
   kind: z.enum(["success", "blocked", "conversational", "error"]),
@@ -91,6 +101,7 @@ export type FinalAnswer = z.infer<typeof FinalAnswerSchema>;
 // Runtime variants: structured output via synthetic tool call (see header).
 export const PlannerResponse = toolStrategy(PlannerSchema);
 export const WriterResponse = toolStrategy(WriterSchema);
+export const AstWriterResponse = toolStrategy(AstWriterSchema);
 export const CheckerResponse = toolStrategy(CheckerSchema);
 export const FinalAnswerResponse = toolStrategy(FinalAnswerSchema);
 

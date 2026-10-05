@@ -58,6 +58,8 @@ export function useQueryExecution({
             domain: domain || "default",
             dialect: dialect || "mysql",
             include_traces: includeTraces,
+            include_ast: true,
+            include_sql: true,
           };
 
       const displayedQuestion = (payload.query as string) || question;

@@ -8,7 +8,7 @@ import { openApiSpec } from "./api/openapi-spec";
 import { answerQuestion } from "./agent/coordinator";
 import { flushTracing as flushTraces } from "./agent/tracing";
 import { DEFAULT_SNAPSHOT } from "./domain/config";
-import { QueryRequestSchema, getEffectiveQuery, getEffectiveDialect, getEffectiveDomain, getEffectiveIncludeTraces, getEffectiveIncludeAst, getEffectiveRequiredProjection, getEffectiveTimeContext, RESPONSE_MAX_BYTES } from "./api/request-schema";
+import { QueryRequestSchema, getEffectiveQuery, getEffectiveDialect, getEffectiveDomain, getEffectiveIncludeTraces, getEffectiveIncludeAst, getEffectiveIncludeSql, getEffectiveRequiredProjection, getEffectiveTimeContext, RESPONSE_MAX_BYTES } from "./api/request-schema";
 import { toBackendEnvelope } from "./api/response-mapper";
 
 export const app = new Hono();
@@ -103,6 +103,7 @@ app.post(
           dialect,
           domain,
           includeAst,
+          includeSql: getEffectiveIncludeSql(body),
           requiredProjection: getEffectiveRequiredProjection(body),
           timeContext: getEffectiveTimeContext(body),
         }),

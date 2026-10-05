@@ -354,6 +354,7 @@ export async function answerQuestion(request: AnswerRequest): Promise<AnswerResu
               })()}`,
               `snapshot: ${snapshot.ref} (config ID, not a file path — never read it as a file)`,
               `include_ast: ${includeAst}`,
+              `include_sql: ${request.includeSql !== false}`,
               hasTemporalExpression(request.question)
                 ? `time context: ${buildTimeContextText(request.timeContext)}`
                 : `time context: none (no temporal filter)`,
